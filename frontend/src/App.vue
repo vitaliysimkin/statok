@@ -6,6 +6,7 @@
       <RouterLink to="/transactions">{{ t('nav.transactions') }}</RouterLink>
       <RouterLink to="/assets">{{ t('nav.assets') }}</RouterLink>
       <RouterLink to="/settings">{{ t('nav.settings') }}</RouterLink>
+      <ThemeLocaleSwitcher class="nav-switcher" />
       <button class="nav-logout" @click="logout">{{ t('nav.logout') }}</button>
     </nav>
     <main class="app-main">
@@ -18,6 +19,7 @@
 import { computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import ThemeLocaleSwitcher from '@/components/ThemeLocaleSwitcher.vue'
 
 const { t } = useI18n()
 const route = useRoute()

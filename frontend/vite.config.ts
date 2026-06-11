@@ -12,15 +12,38 @@ const pkg = JSON.parse(
 export default defineConfig({
   plugins: [
     vue(),
-    // Full PWA configuration will be done in ST-049
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
       manifest: {
         name: 'Statok',
         short_name: 'Statok',
         display: 'standalone',
-        theme_color: '#ffffff',
+        theme_color: '#1a6ef5',
         background_color: '#ffffff',
+        icons: [
+          { src: '/icons/icon-192.svg', sizes: '192x192', type: 'image/svg+xml' },
+          { src: '/icons/icon-512.svg', sizes: '512x512', type: 'image/svg+xml' },
+          { src: '/icons/maskable-512.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
+        ],
+      },
+      workbox: {
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/auth/, /^\/health/],
+        runtimeCaching: [
+          {
+            urlPattern: ({ url, request }) =>
+              url.pathname.startsWith('/api') &&
+              !url.pathname.startsWith('/api/backup') &&
+              request.method === 'GET',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              networkTimeoutSeconds: 4,
+              expiration: { maxAgeSeconds: 86400 },
+            },
+          },
+        ],
       },
     }),
   ],
@@ -34,5 +57,16 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
+  },
+  build: {
+    rollupOptions: {
+      external: [
+        'codemirror',
+        '@codemirror/state',
+        '@codemirror/lang-json',
+        '@codemirror/lang-markdown',
+        '@codemirror/theme-one-dark',
+      ],
+    },
   },
 })
