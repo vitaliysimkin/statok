@@ -13,6 +13,7 @@ import { logger } from './lib/logger.js'
 import { APP_VERSION } from './lib/version.js'
 import { runMigrations } from './db/migrate.js'
 import { seedAdmin } from './lib/seed.js'
+import { startEodPipelineJob } from './jobs/eodPipeline.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { apiRouter } from './routes/api.js'
@@ -49,12 +50,13 @@ function validateEnv(): void {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Background jobs (stub — wired in ST-029 EOD pipeline)
+// 2. Background jobs (ST-029 EOD pipeline)
 // ---------------------------------------------------------------------------
 
-async function startJobs(): Promise<void> {
-  // TODO ST-029: scheduleDailyAt('23:30','Europe/Kyiv', runEodPipeline) + boot catch-up
-  logger.info('jobs: skipped (stub until ST-029)')
+function startJobs(): void {
+  // scheduleDailyAt('23:30','Europe/Kyiv', runEodPipeline) + boot catch-up (arch §4.4).
+  startEodPipelineJob()
+  logger.info('jobs: EOD pipeline scheduled (23:30 Europe/Kyiv)')
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ async function start(): Promise<void> {
 
   await runMigrations()
   await seedAdmin()
-  await startJobs()
+  startJobs()
 
   const port = Number(process.env.PORT ?? 3100)
 

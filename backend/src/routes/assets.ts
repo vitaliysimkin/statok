@@ -18,6 +18,14 @@ import type { AppEnv } from '../middleware/requestContext.ts'
 import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
 import { isIso4217 } from '../services/cashAssets.ts'
+import {
+  couponSchedule,
+  currentYield,
+  getBondWithAsset,
+  latestQuoteMinor,
+  ytm,
+  type BondInput,
+} from '../services/bond.ts'
 
 export const assetsRouter = new Hono<AppEnv>()
 
@@ -226,8 +234,89 @@ assetsRouter.delete('/:id', async (c) => {
 })
 
 // ---------------------------------------------------------------------------
+// GET /api/assets/:id/bond/schedule  (read-only coupon schedule)  — FR-23/24
+// ---------------------------------------------------------------------------
+assetsRouter.get('/:id/bond/schedule', async (c) => {
+  const userId = getUserId(c)
+  const id = c.req.param('id')
+  const asset = await getAssetOwnedBy(userId, id)
+  if (!asset || asset.type !== 'bond') {
+    return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
+  }
+  const bond = await getBondWithAsset(id)
+  if (!bond) return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
+
+  const items = couponSchedule(bondInputOf(bond))
+  return c.json({ items, currency: bond.currency })
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/assets/:id/bond/metrics?price=&date=  (YTM + current yield)  — FR-27
+// ---------------------------------------------------------------------------
+assetsRouter.get('/:id/bond/metrics', async (c) => {
+  const userId = getUserId(c)
+  const id = c.req.param('id')
+  const asset = await getAssetOwnedBy(userId, id)
+  if (!asset || asset.type !== 'bond') {
+    return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
+  }
+  const bond = await getBondWithAsset(id)
+  if (!bond) return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
+
+  // settlement = ?date (YYYY-MM-DD), default today Kyiv.
+  const dateParam = c.req.query('date')
+  const asOf = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : todayKyivIso()
+
+  // price resolution: explicit ?price= (clean price, major units, per 1 bond) →
+  // else latest quote ≤ asOf → else face value fallback.
+  const priceParam = c.req.query('price')
+  let priceUsed: number // minor units (clean price per 1 bond)
+  let priceBasis: 'yahoo' | 'manual' | 'face'
+
+  if (priceParam != null && priceParam !== '' && Number.isFinite(Number(priceParam))) {
+    priceUsed = Math.round(Number(priceParam) * 100)
+    // An explicit override is treated as a manual basis.
+    priceBasis = 'manual'
+  } else {
+    const quote = await latestQuoteMinor(id, bond.currency, asOf)
+    if (quote) {
+      priceUsed = quote.priceMinor
+      priceBasis = quote.source
+    } else {
+      priceUsed = bond.faceValueMinor
+      priceBasis = 'face'
+    }
+  }
+
+  const input = bondInputOf(bond)
+  const currentYieldPercent = currentYield(input, priceUsed) * 100
+  const ytmPercent = ytm(input, priceUsed, asOf)
+
+  return c.json({ ytmPercent, currentYieldPercent, priceUsed, priceBasis, asOf })
+})
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function bondInputOf(b: Awaited<ReturnType<typeof getBondWithAsset>> & {}): BondInput {
+  return {
+    faceValueMinor: b.faceValueMinor,
+    couponRatePercent: b.couponRatePercent,
+    couponFrequency: b.couponFrequency,
+    issueDate: b.issueDate,
+    maturityDate: b.maturityDate,
+  }
+}
+
+function todayKyivIso(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Kyiv',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}
 
 async function getAssetOwnedBy(userId: string, id: string) {
   const rows = await db.select().from(assets)
