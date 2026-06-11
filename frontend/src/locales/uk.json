@@ -1,0 +1,68 @@
+{
+  "nav": {
+    "dashboard": "Дашборд",
+    "accounts": "Рахунки",
+    "transactions": "Транзакції",
+    "assets": "Активи",
+    "settings": "Налаштування",
+    "logout": "Вийти"
+  },
+  "auth": {
+    "login": "Увійти",
+    "username": "Імʼя користувача",
+    "password": "Пароль",
+    "loginError": "Невірні облікові дані"
+  },
+  "common": {
+    "save": "Зберегти",
+    "cancel": "Скасувати",
+    "delete": "Видалити",
+    "edit": "Редагувати",
+    "create": "Створити",
+    "archive": "Архівувати",
+    "confirm": "Підтвердити",
+    "loading": "Завантаження...",
+    "error": "Помилка",
+    "success": "Успішно",
+    "noData": "Немає даних",
+    "search": "Пошук"
+  },
+  "accounts": {
+    "title": "Рахунки",
+    "newAccount": "Новий рахунок",
+    "name": "Назва",
+    "kind": "Тип",
+    "note": "Примітка",
+    "balance": "Баланс",
+    "netWorth": "Загальна вартість"
+  },
+  "transactions": {
+    "title": "Транзакції",
+    "newTransaction": "Нова транзакція",
+    "type": "Тип",
+    "date": "Дата",
+    "amount": "Сума",
+    "asset": "Актив",
+    "account": "Рахунок"
+  },
+  "assets": {
+    "title": "Активи",
+    "newAsset": "Новий актив",
+    "symbol": "Символ",
+    "name": "Назва",
+    "type": "Тип",
+    "currency": "Валюта",
+    "priceSource": "Джерело ціни"
+  },
+  "settings": {
+    "title": "Налаштування",
+    "language": "Мова",
+    "theme": "Тема",
+    "themeLight": "Світла",
+    "themeDark": "Темна",
+    "themeAuto": "Авто",
+    "baseCurrency": "Базова валюта",
+    "version": "Версія",
+    "jobs": "Стан джоб"
+  }
+}

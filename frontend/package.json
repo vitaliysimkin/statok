@@ -1,0 +1,27 @@
+{
+  "name": "statok-ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Statok frontend (Vue 3 + Vite). Scaffolded in ST-005.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@statok/shared": "workspace:*",
+    "@vitaliysimkin/t-components": "^0.1.0",
+    "uplot": "^1.6.31",
+    "vue": "^3.5.13",
+    "vue-i18n": "^10.0.5",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vite-plugin-pwa": "^0.21.1",
+    "vue-tsc": "^2.2.0"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "accounts": "Accounts",
+    "transactions": "Transactions",
+    "assets": "Assets",
+    "settings": "Settings",
+    "logout": "Logout"
+  },
+  "auth": {
+    "login": "Sign In",
+    "username": "Username",
+    "password": "Password",
+    "loginError": "Invalid credentials"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "create": "Create",
+    "archive": "Archive",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "noData": "No data",
+    "search": "Search"
+  },
+  "accounts": {
+    "title": "Accounts",
+    "newAccount": "New Account",
+    "name": "Name",
+    "kind": "Kind",
+    "note": "Note",
+    "balance": "Balance",
+    "netWorth": "Net Worth"
+  },
+  "transactions": {
+    "title": "Transactions",
+    "newTransaction": "New Transaction",
+    "type": "Type",
+    "date": "Date",
+    "amount": "Amount",
+    "asset": "Asset",
+    "account": "Account"
+  },
+  "assets": {
+    "title": "Assets",
+    "newAsset": "New Asset",
+    "symbol": "Symbol",
+    "name": "Name",
+    "type": "Type",
+    "currency": "Currency",
+    "priceSource": "Price Source"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": "Theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeAuto": "Auto",
+    "baseCurrency": "Base Currency",
+    "version": "Version",
+    "jobs": "Jobs Status"
+  }
+}

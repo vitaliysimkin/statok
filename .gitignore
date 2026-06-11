@@ -14,6 +14,8 @@ build/
 .env
 .env.*
 !.env.example
+backend/.env
+!backend/.env.dev
 
 # Logs
 *.log
@@ -31,6 +33,7 @@ Thumbs.db
 # DB / data
 *.sqlite
 *.sqlite3
+*.dump
 pgdata/
 data/
 

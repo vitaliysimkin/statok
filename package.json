@@ -1,0 +1,20 @@
+{
+  "name": "statok",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-hosted personal finance / net worth tracker (single-user, multi-currency investments).",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "packages/*"
+  ],
+  "scripts": {
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
+    "release:major": "node scripts/release.mjs major"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  }
+}

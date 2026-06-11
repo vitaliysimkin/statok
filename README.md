@@ -31,3 +31,55 @@ Self-hosted застосунок для керування особистими 
 - **Dev-порти:** Postgres `5434`, backend `3100`, Vite `5273`
 
 Деталі — `research/deployment-blueprint.md`. Фінальний стек фіксується після кроку «Вимоги».
+
+## Монорепо
+
+bun workspaces. Спільний код — `@statok/shared` (без build-степу, `main: src/index.ts`).
+
+| Workspace | Пакет | Призначення |
+|---|---|---|
+| `packages/shared/` | `@statok/shared` | гроші (minor↔display, half-up), decimal (bigint fixed-point), enums, DTO |
+| `backend/` | `statok-backend` | Bun + Hono + Drizzle + Postgres |
+| `frontend/` | `statok-ui` | Vue 3 + Vite (Bun build) → nginx |
+
+Єдине джерело версії — `version` у кореневому `package.json`.
+
+## Quick Start (dev)
+
+### 1. Підняти Postgres
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Postgres слухає на `localhost:5434`.
+
+### 2. Запустити бекенд (порт 3100)
+
+```bash
+cp backend/.env.dev backend/.env   # або виставити env-змінні вручну
+bun install                         # лінкує workspaces (@statok/shared)
+bun run --cwd backend db:generate   # згенерувати SQL-міграції (потребує схеми ST-006+)
+bun run --cwd backend dev           # hot-reload, слухає на :3100
+```
+
+Перевірка: `curl http://localhost:3100/health`
+
+### 3. Запустити фронтенд (порт 5273, після ST-005)
+
+```bash
+bun run --cwd frontend dev
+```
+
+Vite слухає на `http://localhost:5273`.
+
+Dev-порти: Postgres `5434`, backend `3100`, Vite `5273`.
+
+> Зміна пароля адміна у v1 — лише вручну SQL або через зміну `ADMIN_PASSWORD` у `.env` і
+> пересід (`DROP TABLE users; bun run db:migrate`). Сід не перезаписує наявного юзера.
+
+## Документація
+
+- `CLAUDE.md` — наскрізні інженерні правила для агентів.
+- `ARCHITECTURE.md` — навігаційний огляд (канон — `specs/statok-tz.md` §7).
+- `CICD.md` — релізи / деплой (заглушка до фази `deploy`).

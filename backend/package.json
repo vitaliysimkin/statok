@@ -1,0 +1,24 @@
+{
+  "name": "statok-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Statok backend (Bun + Hono + Drizzle + Postgres).",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts"
+  },
+  "dependencies": {
+    "@statok/shared": "workspace:*",
+    "bcryptjs": "^2.4.3",
+    "drizzle-orm": "^0.44.0",
+    "hono": "^4.0.0",
+    "jose": "^6.0.0",
+    "postgres": "^3.4.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.0"
+  }
+}

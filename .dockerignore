@@ -1,0 +1,43 @@
+# Mirror of .gitignore essentials for Docker build context.
+# Build context is the repo root (so packages/shared is available to images).
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+build/
+.output/
+.vite/
+**/dist/
+
+# Env / secrets
+.env
+.env.*
+backend/.env
+!backend/.env.dev
+
+# DB / data
+*.sqlite
+*.sqlite3
+*.dump
+pgdata/
+data/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# VCS / docs / non-runtime
+.git/
+.github/
+research/
+specs/
+prompts/
+tasks/
