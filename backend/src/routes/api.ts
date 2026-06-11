@@ -1,14 +1,16 @@
 import { Hono } from 'hono'
 
+import { accountsRouter } from './accounts.ts'
+import { assetsRouter } from './assets.ts'
+import { transactionsRouter } from './transactions.ts'
+
 /**
- * /api/* router stub.
- * Real sub-routers (accounts, assets, transactions, …) mounted in later tasks.
+ * /api/* router.
  */
 export const apiRouter = new Hono()
 
-// TODO ST-014+: mount sub-routers here
-// apiRouter.route('/accounts', accountsRouter)
-// apiRouter.route('/assets', assetsRouter)
-// etc.
+apiRouter.route('/accounts', accountsRouter)
+apiRouter.route('/assets', assetsRouter)
+apiRouter.route('/transactions', transactionsRouter)
 
 apiRouter.get('/', (c) => c.json({ message: 'Statok API' }))

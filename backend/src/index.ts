@@ -11,51 +11,49 @@ import { secureHeaders } from 'hono/secure-headers'
 
 import { logger } from './lib/logger.js'
 import { APP_VERSION } from './lib/version.js'
+import { runMigrations } from './db/migrate.js'
+import { seedAdmin } from './lib/seed.js'
 import { healthRouter } from './routes/health.js'
 import { authRouter } from './routes/auth.js'
 import { apiRouter } from './routes/api.js'
 
 // ---------------------------------------------------------------------------
-// 1. Validate required env — fatal exit if missing
+// 1. Validate required env — fatal exit if missing (ТЗ §8.3, FR-01, NFR-02)
 // ---------------------------------------------------------------------------
+
+function fatal(message: string): never {
+  logger.error(`fatal: ${message}`)
+  process.exit(1)
+}
 
 function validateEnv(): void {
   const { DATABASE_URL, JWT_SECRET } = process.env
 
   if (!DATABASE_URL) {
-    logger.error('Missing required env var: DATABASE_URL')
-    process.exit(1)
+    fatal('DATABASE_URL is required but not set — cannot start (see backend/.env.dev)')
   }
 
   if (!JWT_SECRET) {
-    logger.error('Missing required env var: JWT_SECRET')
-    process.exit(1)
+    fatal('JWT_SECRET is required but not set — cannot start (see backend/.env.dev)')
   }
 
-  if (JWT_SECRET.length < 32) {
-    logger.error('JWT_SECRET must be at least 32 characters long', {
-      length: JWT_SECRET.length,
-    })
-    process.exit(1)
+  // JWT_SECRET must be >= 32 bytes for HS256 (ТЗ §8.3, §9).
+  const secretBytes = Buffer.byteLength(JWT_SECRET, 'utf8')
+  if (secretBytes < 32) {
+    fatal(`JWT_SECRET must be at least 32 bytes (got ${secretBytes}) — refusing to start`)
   }
+
+  // BASE_CURRENCY read once on boot; default USD (ТЗ §8.3).
+  const baseCurrency = process.env.BASE_CURRENCY ?? 'USD'
+  logger.info('env validated', { baseCurrency })
 }
 
 // ---------------------------------------------------------------------------
-// 2. Boot sequence helpers (stubs — wired in ST-009, ST-029)
+// 2. Background jobs (stub — wired in ST-029 EOD pipeline)
 // ---------------------------------------------------------------------------
-
-async function runMigrations(): Promise<void> {
-  // TODO ST-009: import and call drizzle migrator
-  logger.info('migrations: skipped (stub until ST-009)')
-}
-
-async function seedAdmin(): Promise<void> {
-  // TODO ST-009: create admin user from ADMIN_USERNAME / ADMIN_PASSWORD if absent
-  logger.info('seed: skipped (stub until ST-009)')
-}
 
 async function startJobs(): Promise<void> {
-  // TODO ST-029: startEodPipelineJob()
+  // TODO ST-029: scheduleDailyAt('23:30','Europe/Kyiv', runEodPipeline) + boot catch-up
   logger.info('jobs: skipped (stub until ST-029)')
 }
 
