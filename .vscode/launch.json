@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "bun",
+      "request": "launch",
+      "name": "Backend (Bun)",
+      "cwd": "${workspaceFolder}/backend",
+      "program": "src/index.ts",
+      "runtimeArgs": ["--env-file=.env.dev", "--watch"],
+      "internalConsoleOptions": "neverOpen"
+    },
+    {
+      "type": "chrome",
+      "request": "launch",
+      "name": "Frontend (Vite)",
+      "url": "http://localhost:5273",
+      "webRoot": "${workspaceFolder}/frontend/src",
+      "preLaunchTask": "frontend: dev"
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Dev: back + front",
+      "configurations": ["Backend (Bun)", "Frontend (Vite)"],
+      "stopAll": true
+    }
+  ]
+}
