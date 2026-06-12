@@ -34,7 +34,7 @@
 
 UUID-валідація: інлайн-guard у кожного власника своїх роутів (без спільного lib у паралельній хвилі).
 
-## Хвиля 2 (після гейту 1; специфікації — після результатів W1)
+## Хвиля 2 (після гейту 1) — СТАТУС: хвиля 1 виконана й закомічена (4773f3b), гейт 1 зелений; ПОВНІ специфікації хвилі 2 — у prompts/HANDOFF-next-session.md (розділ «Хвиля 2 — специфікації»)
 
 - **Фронт-сторінки (паралельно, по власнику):** A: App.vue+ThemeLocaleSwitcher (нав-токени, іконки кіту, TButton, viklik refresh() при старті); B: Dashboard+Charts (locale замість 'uk', TButtonGroup періоди/groupBy, labels серій через t(), видалити мертвий BaseChart); C: Accounts*+AccountForm (kind-лейбли, warn-токени, іконки кіту, TSwitch, card-stack позицій, alert→inline errKey); D: Transactions* (кіт-форми, transfer-edit блок/окрема форма, errKey, пагінація іконками); E: Assets*+PriceHistory+BondPanel ({items} фікс usePrices/useFx + amountMinor у convert, TSelect, archived-бейдж, source-лейбли, заголовок історії); F: Login+Settings (кіт, TButtonGroup, syncResult okCount/errCount+fx-сума, чистка мертвого useSettings); G: PWA (растрові PNG 192/512/maskable генерацією, manifest lang/description, чистка pwa.ts). Модалки: Esc+фокус кожен власник у своїх.
 - **Бекенд:** fx-batch (N+1 у pnl/cashflow → батч-резолв курсів; pivot rateDate→MAX) + адверс. верифікація і замір на ~20k tx.
