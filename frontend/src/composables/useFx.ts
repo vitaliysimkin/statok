@@ -12,9 +12,9 @@ export function useFx() {
   const loading = ref(false)
   const error = ref<string | null>(null)
 
-  async function history(params?: {
-    base?: string
-    quote?: string
+  async function history(params: {
+    base: string
+    quote: string
     from?: string
     to?: string
   }): Promise<void> {
@@ -22,12 +22,11 @@ export function useFx() {
     error.value = null
     try {
       const qs = new URLSearchParams()
-      if (params?.base) qs.set('base', params.base)
-      if (params?.quote) qs.set('quote', params.quote)
-      if (params?.from) qs.set('from', params.from)
-      if (params?.to) qs.set('to', params.to)
-      const q = qs.toString() ? `?${qs}` : ''
-      const res = await apiFetch<{ items: FxRate[] }>(`/api/fx${q}`)
+      qs.set('base', params.base)
+      qs.set('quote', params.quote)
+      if (params.from) qs.set('from', params.from)
+      if (params.to) qs.set('to', params.to)
+      const res = await apiFetch<{ items: FxRate[] }>(`/api/fx?${qs}`)
       rates.value = res.items
     } catch (e) {
       error.value = (e as Error).message

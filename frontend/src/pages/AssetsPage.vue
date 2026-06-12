@@ -58,7 +58,7 @@
             <span class="asset-source">{{ priceSourceLabel(a.priceSource) }}</span>
           </div>
           <div class="asset-card-actions" @click.stop>
-            <TButton icon="system-uicons:pencil" mode="ghost" size="mini" :aria-label="t('common.edit')" @click="openEdit(a)" />
+            <TButton icon="system-uicons:pen" mode="ghost" size="mini" :aria-label="t('common.edit')" @click="openEdit(a)" />
             <TButton
               :icon="a.archivedAt ? 'system-uicons:undo' : 'system-uicons:box'"
               mode="ghost"

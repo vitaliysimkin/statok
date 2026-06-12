@@ -8,7 +8,7 @@
           :label="t('assets.tickerChange')"
           mode="ghost"
           size="small"
-          icon="system-uicons:pencil"
+          icon="system-uicons:pen"
           @click="tickerChangeOpen = true"
         />
         <TButton
