@@ -1,7 +1,7 @@
 <template>
   <div class="price-history">
     <div class="ph-toolbar">
-      <h4>{{ t('assets.priceSource') }}</h4>
+      <h4>{{ t('assets.priceHistory') }}</h4>
       <div class="ph-actions">
         <TButton
           v-if="showTickerChange"
@@ -57,7 +57,7 @@
                 <TTag
                   :variant="q.source === 'manual' ? 'teal' : 'gray'"
                   size="small"
-                >{{ q.source }}</TTag>
+                >{{ q.source === 'manual' ? t('assets.priceSourceManual') : t('assets.priceSourceYahoo') }}</TTag>
               </td>
               <td class="action-col">
                 <TButton
@@ -85,7 +85,7 @@
         </div>
         <div class="field">
           <label for="tc-new-symbol">{{ t('assets.tickerChangeTo') }}</label>
-          <TInput id="tc-new-symbol" v-model="newSymbol" required />
+          <TInput id="tc-new-symbol" ref="tcFirstField" v-model="newSymbol" required />
         </div>
         <div class="field">
           <label for="tc-date">{{ t('common.date') }}</label>
@@ -107,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { TButton, TInput, TTag } from '@vitaliysimkin/t-components'
 import { apiFetch } from '@/services/api'
@@ -135,12 +135,28 @@ const newSymbol = ref('')
 const tcDate = ref(new Date().toISOString().slice(0, 10))
 const tcErr = ref<string | null>(null)
 const tcSaving = ref(false)
+const tcFirstField = ref<{ inputRef?: HTMLInputElement } | null>(null)
 
 const sortedQuotes = computed(() =>
   [...quotes.value].sort((a, b) => b.quoteDate.localeCompare(a.quoteDate)),
 )
 
+function onTcKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') tickerChangeOpen.value = false
+}
+
+watch(tickerChangeOpen, async (open) => {
+  if (open) {
+    window.addEventListener('keydown', onTcKeydown)
+    await nextTick()
+    tcFirstField.value?.inputRef?.focus()
+  } else {
+    window.removeEventListener('keydown', onTcKeydown)
+  }
+})
+
 onMounted(() => history({ assetId: props.assetId }))
+onBeforeUnmount(() => window.removeEventListener('keydown', onTcKeydown))
 
 async function saveManual() {
   if (!newDate.value || !newPrice.value) return

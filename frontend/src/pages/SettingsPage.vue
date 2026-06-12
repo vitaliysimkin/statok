@@ -6,34 +6,24 @@
     <section class="settings-section">
       <div class="settings-row">
         <span class="settings-label" id="locale-group-label">{{ t('settings.language') }}</span>
-        <div class="btn-group" role="group" aria-labelledby="locale-group-label">
-          <button
-            v-for="l in (['uk', 'en'] as const)"
-            :key="l"
-            class="btn-seg"
-            :class="{ active: locale === l }"
-            :aria-pressed="locale === l"
-            @click="setLocale(l)"
-          >
-            {{ t(`settings.lang${l === 'uk' ? 'Uk' : 'En'}`) }}
-          </button>
-        </div>
+        <TButtonGroup
+          :model-value="locale"
+          :options="localeOptions"
+          mandatory
+          @update:model-value="setLocale($event as 'uk' | 'en')"
+          :aria-labelledby="'locale-group-label'"
+        />
       </div>
 
       <div class="settings-row">
         <span class="settings-label" id="theme-group-label">{{ t('settings.theme') }}</span>
-        <div class="btn-group" role="group" aria-labelledby="theme-group-label">
-          <button
-            v-for="th in (['light', 'dark', 'auto'] as const)"
-            :key="th"
-            class="btn-seg"
-            :class="{ active: theme === th }"
-            :aria-pressed="theme === th"
-            @click="applyTheme(th)"
-          >
-            {{ t(`settings.theme${th.charAt(0).toUpperCase() + th.slice(1)}`) }}
-          </button>
-        </div>
+        <TButtonGroup
+          :model-value="theme"
+          :options="themeOptions"
+          mandatory
+          @update:model-value="applyTheme($event as 'light' | 'dark' | 'auto')"
+          :aria-labelledby="'theme-group-label'"
+        />
       </div>
     </section>
 
@@ -140,11 +130,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted } from 'vue'
+import { reactive, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TButtonGroup } from '@vitaliysimkin/t-components'
+import type { TButtonGroupOption } from '@vitaliysimkin/t-components'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 import { useSettings } from '@/composables/useSettings'
+import { errKey } from '@/services/api'
 import type { JobState } from '@statok/shared'
 
 const { t } = useI18n()
@@ -164,6 +157,17 @@ const jobKeys = ['prices', 'fx', 'snapshot'] as const
 
 const busy = reactive({ prices: false, fx: false, snapshot: false, backup: false })
 const msgs = reactive({ prices: '', fx: '', snapshot: '', backup: '' })
+
+const localeOptions = computed<TButtonGroupOption[]>(() => [
+  { value: 'uk', label: t('settings.langUk') },
+  { value: 'en', label: t('settings.langEn') },
+])
+
+const themeOptions = computed<TButtonGroupOption[]>(() => [
+  { value: 'light', label: t('settings.themeLight') },
+  { value: 'dark', label: t('settings.themeDark') },
+  { value: 'auto', label: t('settings.themeAuto') },
+])
 
 function formatDt(dt: string | null): string {
   if (!dt) return t('jobs.never')
@@ -190,17 +194,34 @@ function statusClass(s: JobState['lastStatus']): string {
   return ''
 }
 
+interface SyncPricesResult {
+  okCount: number
+  errCount: number
+  errors: Array<{ symbol: string; message: string }>
+}
+
+interface FxBranchResult {
+  ok: boolean
+  ratesUpserted: number
+  error?: string
+}
+
+interface SyncFxResult {
+  frankfurter: FxBranchResult
+  nbu: FxBranchResult
+}
+
 async function doSyncPrices() {
   busy.prices = true
   msgs.prices = ''
   try {
-    const res = (await triggerPricesSync()) as { ok?: number; errors?: number } | null
-    const ok = res?.ok ?? 0
-    const err = res?.errors ?? 0
-    msgs.prices = t('settings.syncDone', { ok, err })
+    const res = (await triggerPricesSync()) as SyncPricesResult
+    const ok = res.okCount ?? 0
+    const err = res.errCount ?? 0
+    msgs.prices = t('settings.syncPricesResult', { ok, err })
     await fetchSettings()
   } catch (e) {
-    msgs.prices = (e as Error).message
+    msgs.prices = t(errKey(e))
   } finally {
     busy.prices = false
   }
@@ -210,13 +231,13 @@ async function doSyncFx() {
   busy.fx = true
   msgs.fx = ''
   try {
-    const res = (await triggerFxSync()) as { ok?: number; errors?: number } | null
-    const ok = res?.ok ?? 0
-    const err = res?.errors ?? 0
-    msgs.fx = t('settings.syncDone', { ok, err })
+    const res = (await triggerFxSync()) as SyncFxResult
+    const fr = res.frankfurter?.ratesUpserted ?? 0
+    const nbu = res.nbu?.ratesUpserted ?? 0
+    msgs.fx = t('settings.syncFxResult', { fr, nbu })
     await fetchSettings()
   } catch (e) {
-    msgs.fx = (e as Error).message
+    msgs.fx = t(errKey(e))
   } finally {
     busy.fx = false
   }
@@ -230,7 +251,7 @@ async function doRunSnapshot() {
     msgs.snapshot = t('settings.snapshotDone', { date: new Date().toLocaleDateString(locale.value) })
     await fetchSettings()
   } catch (e) {
-    msgs.snapshot = (e as Error).message
+    msgs.snapshot = t(errKey(e))
   } finally {
     busy.snapshot = false
   }
@@ -328,40 +349,6 @@ onMounted(fetchSettings)
   font-family: monospace;
 }
 
-.btn-group {
-  display: flex;
-  gap: 2px;
-}
-
-.btn-seg {
-  padding: 5px 12px;
-  font-size: 0.8rem;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background 0.1s, color 0.1s;
-}
-
-.btn-seg:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.btn-seg:last-child {
-  border-radius: 0 4px 4px 0;
-}
-
-.btn-seg:not(:first-child) {
-  border-left: none;
-}
-
-.btn-seg.active {
-  background: var(--color-accent, #3b82f6);
-  color: #fff;
-  border-color: var(--color-accent, #3b82f6);
-}
-
 /* Jobs */
 .job-row {
   padding: 10px 0;
@@ -454,10 +441,6 @@ onMounted(fetchSettings)
 
   .actions-grid {
     grid-template-columns: 1fr;
-  }
-
-  .btn-group {
-    flex-wrap: wrap;
   }
 }
 </style>

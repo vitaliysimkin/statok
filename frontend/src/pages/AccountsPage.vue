@@ -2,9 +2,12 @@
   <div class="accounts-page">
     <div class="page-header">
       <h1>{{ t('accounts.title') }}</h1>
-      <button class="btn-primary" @click="openCreate">
-        <span class="icon">+</span> {{ t('accounts.newAccount') }}
-      </button>
+      <TButton
+        :label="t('accounts.newAccount')"
+        variant="accent"
+        icon="system-uicons:plus"
+        @click="openCreate"
+      />
     </div>
 
     <div v-if="loading" class="loading">{{ t('common.loading') }}</div>
@@ -46,7 +49,7 @@
                 class="balance-row"
                 :class="{ 'balance-neg': b.cashMinor < 0 }"
               >
-                <span v-if="b.cashMinor < 0" class="warn-icon" :title="t('accounts.negativeCashWarning')">!</span>
+                <span v-if="b.cashMinor < 0" class="warn-badge" :title="t('accounts.negativeCashWarning')">!</span>
                 {{ formatMoney(b.cashMinor, b.currency, locale) }}
               </div>
             </div>
@@ -59,15 +62,28 @@
 
             <!-- Actions -->
             <div class="card-actions" @click.stop>
-              <button class="btn-icon" :title="t('common.edit')" :aria-label="t('common.edit')" @click.stop="openEdit(acc)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button class="btn-icon" :title="t('accounts.archiveAccount')" :aria-label="t('accounts.archiveAccount')" @click.stop="doArchive(acc)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>
-              </button>
-              <button class="btn-icon btn-danger" :title="t('accounts.deleteAccount')" :aria-label="t('accounts.deleteAccount')" @click.stop="doDelete(acc)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-              </button>
+              <TButton
+                icon="system-uicons:pen"
+                mode="ghost"
+                size="mini"
+                :aria-label="t('common.edit')"
+                @click="openEdit(acc)"
+              />
+              <TButton
+                icon="system-uicons:box"
+                mode="ghost"
+                size="mini"
+                :aria-label="t('accounts.archiveAccount')"
+                @click="doArchive(acc)"
+              />
+              <TButton
+                icon="system-uicons:trash"
+                mode="ghost"
+                size="mini"
+                variant="danger"
+                :aria-label="t('accounts.deleteAccount')"
+                @click="doDelete(acc)"
+              />
             </div>
           </div>
         </div>
@@ -75,20 +91,23 @@
 
       <!-- Include archived toggle -->
       <div class="archived-toggle">
-        <label class="toggle-label">
-          <input type="checkbox" v-model="includeArchived" @change="reload" />
-          {{ t('accounts.includeArchived') }}
-        </label>
+        <TSwitch
+          v-model="includeArchived"
+          size="small"
+          :label="t('accounts.includeArchived')"
+          @update:modelValue="reload"
+        />
       </div>
     </template>
 
     <!-- Confirm dialog -->
-    <div v-if="confirm.visible" class="confirm-overlay" role="dialog" aria-modal="true" :aria-label="confirm.message" @click.self="confirm.visible = false">
+    <div v-if="confirm.visible" class="confirm-overlay" role="dialog" aria-modal="true" :aria-label="confirm.message" @click.self="closeConfirm">
       <div class="confirm-dialog">
         <p id="confirm-msg">{{ confirm.message }}</p>
+        <p v-if="confirm.errorKey" class="form-error" role="alert">{{ t(confirm.errorKey) }}</p>
         <div class="confirm-actions">
-          <button class="btn-secondary" @click="confirm.visible = false">{{ t('common.cancel') }}</button>
-          <button class="btn-danger-solid" @click="confirm.onOk">{{ t('common.confirm') }}</button>
+          <TButton ref="confirmCancelBtn" :label="t('common.cancel')" mode="ghost" @click="closeConfirm" />
+          <TButton :label="t('common.confirm')" variant="danger" @click="confirm.onOk" />
         </div>
       </div>
     </div>
@@ -104,13 +123,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, reactive, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { TButton, TSwitch } from '@vitaliysimkin/t-components'
 import { formatMoney } from '@statok/shared'
 import { useAccounts } from '@/composables/useAccounts'
 import AccountForm from '@/components/accounts/AccountForm.vue'
-import { apiFetch } from '@/services/api'
+import { apiFetch, errKey } from '@/services/api'
+import { kindLabelKey } from '@/lib/accountKind'
 import type { AccountWithBalances } from '@statok/shared'
 
 const { t, locale } = useI18n()
@@ -121,10 +142,12 @@ const includeArchived = ref(false)
 const formVisible = ref(false)
 const editingAccount = ref<AccountWithBalances | null>(null)
 const baseCcy = ref('USD')
+const confirmCancelBtn = ref<{ $el?: HTMLElement } | null>(null)
 
 const confirm = reactive({
   visible: false,
   message: '',
+  errorKey: '' as string,
   onOk: () => {},
 })
 
@@ -142,12 +165,34 @@ async function reload() {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   await reload()
   try {
     const s = await apiFetch<{ baseCurrency: string }>('/api/settings')
     baseCcy.value = s.baseCurrency
   } catch {}
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && confirm.visible) {
+    e.stopPropagation()
+    closeConfirm()
+  }
+}
+
+watch(
+  () => confirm.visible,
+  async (open) => {
+    if (open) {
+      await nextTick()
+      confirmCancelBtn.value?.$el?.focus?.()
+    }
+  },
+)
 
 const anyIncomplete = computed(() => accounts.value.some((a) => a.valuationIncomplete))
 
@@ -157,14 +202,7 @@ const totalNetWorth = computed(() => {
 })
 
 function kindLabel(kind: string): string {
-  const map: Record<string, string> = {
-    broker: t('accounts.kindBroker'),
-    bank: t('accounts.kindBank'),
-    wallet: t('common.unknown'),
-    exchange: t('common.unknown'),
-    other: t('accounts.kindCash'),
-  }
-  return map[kind] ?? kind
+  return t(kindLabelKey(kind))
 }
 
 function goDetail(id: string) {
@@ -186,30 +224,39 @@ async function onFormSaved(_acc: AccountWithBalances) {
   await reload()
 }
 
+function closeConfirm() {
+  confirm.visible = false
+  confirm.errorKey = ''
+}
+
 function doArchive(acc: AccountWithBalances) {
   confirm.message = t('accounts.archiveConfirm', { name: acc.name })
+  confirm.errorKey = ''
   confirm.visible = true
   confirm.onOk = async () => {
-    confirm.visible = false
+    confirm.errorKey = ''
     try {
       await archive(acc.id)
+      closeConfirm()
       await reload()
-    } catch (e: any) {
-      alert(e?.message)
+    } catch (e) {
+      confirm.errorKey = errKey(e)
     }
   }
 }
 
 function doDelete(acc: AccountWithBalances) {
   confirm.message = t('accounts.deleteConfirm', { name: acc.name })
+  confirm.errorKey = ''
   confirm.visible = true
   confirm.onOk = async () => {
-    confirm.visible = false
+    confirm.errorKey = ''
     try {
       await apiFetch(`/api/accounts/${acc.id}`, { method: 'DELETE' })
+      closeConfirm()
       await reload()
-    } catch (e: any) {
-      alert(e?.message)
+    } catch (e) {
+      confirm.errorKey = errKey(e)
     }
   }
 }
@@ -258,7 +305,7 @@ function doDelete(acc: AccountWithBalances) {
 
 .nw-warn {
   font-size: 0.8rem;
-  color: #92400e;
+  color: var(--color-warning-text, #92400e);
   margin-top: 0.25rem;
 }
 
@@ -282,7 +329,7 @@ function doDelete(acc: AccountWithBalances) {
 }
 
 .account-card:hover {
-  border-color: #2563eb;
+  border-color: var(--color-accent, #2563eb);
 }
 
 .card-main {
@@ -330,13 +377,13 @@ function doDelete(acc: AccountWithBalances) {
 }
 
 .balance-neg {
-  color: #dc2626;
+  color: var(--color-error, #dc2626);
 }
 
-.warn-icon {
+.warn-badge {
   font-size: 0.7rem;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
   border-radius: 50%;
   width: 14px;
   height: 14px;
@@ -345,6 +392,7 @@ function doDelete(acc: AccountWithBalances) {
   justify-content: center;
   font-weight: 700;
   cursor: help;
+  flex-shrink: 0;
 }
 
 .acc-value {
@@ -367,35 +415,8 @@ function doDelete(acc: AccountWithBalances) {
   gap: 0.25rem;
 }
 
-.btn-icon {
-  background: transparent;
-  border: 1px solid var(--color-border, #e2e8f0);
-  border-radius: 4px;
-  padding: 4px 6px;
-  cursor: pointer;
-  color: inherit;
-  opacity: 0.7;
-}
-
-.btn-icon:hover {
-  opacity: 1;
-}
-
-.btn-danger {
-  color: #dc2626;
-}
-
 .archived-toggle {
   margin-top: 1rem;
-}
-
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  opacity: 0.7;
 }
 
 .empty-state {
@@ -412,21 +433,8 @@ function doDelete(acc: AccountWithBalances) {
 }
 
 .error {
-  color: #dc2626;
+  color: var(--color-error, #dc2626);
   opacity: 1;
-}
-
-.btn-primary {
-  padding: 0.45rem 1.1rem;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
 }
 
 /* Confirm dialog */
@@ -450,31 +458,17 @@ function doDelete(acc: AccountWithBalances) {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 
+.form-error {
+  color: var(--color-error, #c0392b);
+  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
+}
+
 .confirm-actions {
   display: flex;
   gap: 0.75rem;
   justify-content: flex-end;
   margin-top: 1rem;
-}
-
-.btn-secondary {
-  padding: 0.45rem 1rem;
-  background: transparent;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  color: inherit;
-}
-
-.btn-danger-solid {
-  padding: 0.45rem 1rem;
-  background: #dc2626;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
 }
 
 /* Responsive 360px */
@@ -484,11 +478,10 @@ function doDelete(acc: AccountWithBalances) {
   }
 
   .card-right {
-    align-items: flex-start;
+    align-items: center;
     width: 100%;
     flex-direction: row;
     flex-wrap: wrap;
-    align-items: center;
     justify-content: space-between;
   }
 

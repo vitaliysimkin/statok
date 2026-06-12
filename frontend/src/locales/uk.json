@@ -208,7 +208,8 @@
     "clearFilters": "Скинути фільтри",
     "page": "Сторінка",
     "of": "з",
-    "splitMultiplier": "Множник"
+    "splitMultiplier": "Множник",
+    "editTransfer": "Редагувати переказ"
   },
   "transactionForm": {
     "title": "Нова транзакція",
@@ -256,7 +257,8 @@
     "groupByMonth": "По місяцях",
     "groupByQuarter": "По кварталах",
     "groupByYear": "По роках",
-    "baseCurrency": "Базова валюта"
+    "baseCurrency": "Базова валюта",
+    "valuationIncomplete": "Оцінка неповна: для частини операцій бракує курсу валют"
   },
   "cashflow": {
     "title": "Грошовий потік",
@@ -302,7 +304,9 @@
     "rebuildFrom": "Від",
     "rebuildTo": "До",
     "rebuildDone": "Перераховано {count} снапшотів",
-    "noJobData": "Немає даних про останній запуск"
+    "noJobData": "Немає даних про останній запуск",
+    "syncPricesResult": "Ціни: {ok} успішно, {err} помилок",
+    "syncFxResult": "Курси: Frankfurter {fr}, НБУ {nbu}"
   },
   "jobs": {
     "prices": "Ціни",
@@ -328,6 +332,7 @@
     "NOT_FOUND": "Ресурс не знайдено",
     "CONFLICT": "Конфлікт: {message}",
     "INTERNAL": "Внутрішня помилка сервера. Спробуйте пізніше.",
-    "UNKNOWN": "Невідома помилка. Спробуйте ще раз."
+    "UNKNOWN": "Невідома помилка. Спробуйте ще раз.",
+    "INVALID_SETTING_KEY": "Невідомий ключ налаштування"
   }
 }

@@ -27,7 +27,8 @@ export function useFx() {
       if (params?.from) qs.set('from', params.from)
       if (params?.to) qs.set('to', params.to)
       const q = qs.toString() ? `?${qs}` : ''
-      rates.value = await apiFetch<FxRate[]>(`/api/fx${q}`)
+      const res = await apiFetch<{ items: FxRate[] }>(`/api/fx${q}`)
+      rates.value = res.items
     } catch (e) {
       error.value = (e as Error).message
     } finally {
@@ -36,16 +37,16 @@ export function useFx() {
   }
 
   async function convert(params: {
-    amount: number
+    amountMinor: number
     from: string
     to: string
-    date?: string
+    date: string
   }): Promise<FxConvertResponse> {
     const qs = new URLSearchParams()
-    qs.set('amount', String(params.amount))
+    qs.set('amountMinor', String(params.amountMinor))
     qs.set('from', params.from)
     qs.set('to', params.to)
-    if (params.date) qs.set('date', params.date)
+    qs.set('date', params.date)
     return apiFetch<FxConvertResponse>(`/api/fx/convert?${qs}`)
   }
 

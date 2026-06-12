@@ -16,6 +16,9 @@ function toNum(minor: number, ccy: string): number {
 const props = defineProps<{
   periods: CashflowPeriod[]
   currency: string
+  labelDeposits: string
+  labelWithdrawals: string
+  labelNet: string
 }>()
 
 const el = ref<HTMLDivElement | null>(null)
@@ -32,7 +35,6 @@ function buildChart() {
   chart?.destroy()
 
   const ps = props.periods
-  // x axis: 0..n-1 indices (labels shown via axis.values)
   const xs = ps.map((_, i) => i)
   const deposits = ps.map(p => toNum(p.depositsMinor, props.currency))
   const withdrawals = ps.map(p => -toNum(p.withdrawalsMinor, props.currency))
@@ -70,21 +72,21 @@ function buildChart() {
     series: [
       {},
       {
-        label: 'Deposits',
+        label: props.labelDeposits,
         stroke: colorDeposit,
         fill: colorDeposit + 'aa',
         paths: bars,
         points: { show: false },
       },
       {
-        label: 'Withdrawals',
+        label: props.labelWithdrawals,
         stroke: colorWithdraw,
         fill: colorWithdraw + 'aa',
         paths: bars,
         points: { show: false },
       },
       {
-        label: 'Net',
+        label: props.labelNet,
         stroke: colorNet,
         width: 2,
         points: { show: true, size: 5 },
@@ -100,14 +102,18 @@ function resize() {
   chart.setSize({ width: el.value.clientWidth, height: chart.height })
 }
 
-watch(() => [props.periods, props.currency], buildChart, { deep: true })
+watch(
+  () => [props.periods, props.currency, props.labelDeposits, props.labelWithdrawals, props.labelNet],
+  buildChart,
+  { deep: true },
+)
 
 onMounted(() => {
   buildChart()
   ro = new ResizeObserver(resize)
   if (el.value) ro.observe(el.value)
   themeObserver = new MutationObserver(buildChart)
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 
 onBeforeUnmount(() => {

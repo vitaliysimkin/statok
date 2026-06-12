@@ -1,55 +1,51 @@
 <template>
   <div class="account-form-overlay" @click.self="$emit('cancel')">
-    <div class="account-form">
+    <div class="account-form" role="dialog" aria-modal="true" :aria-label="account ? t('accounts.editAccount') : t('accounts.newAccount')">
       <h2>{{ account ? t('accounts.editAccount') : t('accounts.newAccount') }}</h2>
 
       <form @submit.prevent="submit" novalidate>
         <div class="field">
           <label for="af-name">{{ t('accounts.name') }}</label>
-          <input
+          <TInput
             id="af-name"
+            ref="nameInput"
             v-model="form.name"
             required
             :placeholder="t('accounts.name')"
-            :aria-invalid="!!errorMsg"
-            :aria-describedby="errorMsg ? 'af-error' : undefined"
           />
         </div>
 
         <div class="field">
           <label for="af-kind">{{ t('accounts.kind') }}</label>
-          <select id="af-kind" v-model="form.kind">
-            <option value="broker">{{ t('accounts.kindBroker') }}</option>
-            <option value="exchange">{{ t('common.unknown') }}</option>
-            <option value="bank">{{ t('accounts.kindBank') }}</option>
-            <option value="wallet">{{ t('common.unknown') }}</option>
-            <option value="other">{{ t('accounts.kindCash') }}</option>
-          </select>
+          <TSelect
+            id="af-kind"
+            v-model="form.kind"
+            value-mode="value"
+            :options="kindOptions"
+          />
         </div>
 
         <div class="field">
           <label for="af-note">{{ t('common.note') }} <span class="optional">({{ t('common.optional') }})</span></label>
-          <input id="af-note" v-model="form.note" :placeholder="t('common.note')" />
+          <TInput id="af-note" v-model="form.note" :placeholder="t('common.note')" />
         </div>
 
         <template v-if="form.kind === 'bank'">
           <div class="field">
             <label for="af-rate">{{ t('accounts.interestRate') }}</label>
-            <input id="af-rate" v-model="form.interestRatePercent" type="number" step="0.0001" min="0" :placeholder="t('common.optional')" />
+            <TInput id="af-rate" v-model="form.interestRatePercent" type="number" step="0.0001" min="0" :placeholder="t('common.optional')" />
           </div>
           <div class="field">
             <label for="af-term">{{ t('accounts.termEndDate') }}</label>
-            <input id="af-term" v-model="form.termEndDate" type="date" />
+            <TInput id="af-term" v-model="form.termEndDate" type="date" />
           </div>
         </template>
 
         <div v-if="errorMsg" id="af-error" class="form-error" role="alert">{{ errorMsg }}</div>
 
         <div class="form-actions">
-          <button type="button" class="btn-secondary" @click="$emit('cancel')">{{ t('common.cancel') }}</button>
-          <button type="submit" class="btn-primary" :disabled="saving">
-            {{ saving ? t('common.loading') : t('common.save') }}
-          </button>
+          <TButton type="button" :label="t('common.cancel')" mode="ghost" @click="$emit('cancel')" />
+          <TButton type="submit" :label="saving ? t('common.loading') : t('common.save')" variant="accent" :disabled="saving" />
         </div>
       </form>
     </div>
@@ -57,9 +53,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TInput, TSelect, TButton } from '@vitaliysimkin/t-components'
 import { useAccounts } from '@/composables/useAccounts'
+import { kindLabelKey } from '@/lib/accountKind'
 import type { AccountWithBalances } from '@statok/shared'
 
 const props = defineProps<{
@@ -76,6 +74,13 @@ const { create, update } = useAccounts()
 
 const saving = ref(false)
 const errorMsg = ref('')
+const nameInput = ref<{ inputRef?: HTMLInputElement } | null>(null)
+
+const KINDS = ['broker', 'exchange', 'bank', 'wallet', 'other'] as const
+
+const kindOptions = computed(() =>
+  KINDS.map((k) => ({ value: k, label: t(kindLabelKey(k)) })),
+)
 
 const form = reactive({
   name: '',
@@ -102,8 +107,25 @@ watch(
       form.termEndDate = ''
     }
   },
-  { immediate: true }
+  { immediate: true },
 )
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    e.stopPropagation()
+    emit('cancel')
+  }
+}
+
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+  await nextTick()
+  nameInput.value?.inputRef?.focus()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 
 async function submit() {
   saving.value = true
@@ -175,18 +197,8 @@ async function submit() {
   opacity: 0.6;
 }
 
-.field input,
-.field select {
-  padding: 0.5rem 0.625rem;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 5px;
-  font-size: 0.95rem;
-  background: var(--color-input, #fff);
-  color: inherit;
-}
-
 .form-error {
-  color: #c0392b;
+  color: var(--color-error, #c0392b);
   font-size: 0.85rem;
   margin-bottom: 0.75rem;
 }
@@ -196,30 +208,5 @@ async function submit() {
   gap: 0.75rem;
   justify-content: flex-end;
   margin-top: 1.25rem;
-}
-
-.btn-primary {
-  padding: 0.5rem 1.25rem;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.btn-secondary {
-  padding: 0.5rem 1.25rem;
-  background: transparent;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  color: inherit;
 }
 </style>

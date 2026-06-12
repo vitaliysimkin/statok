@@ -25,7 +25,8 @@ export function usePrices() {
       qs.set('assetId', params.assetId)
       if (params.from) qs.set('from', params.from)
       if (params.to) qs.set('to', params.to)
-      quotes.value = await apiFetch<PriceQuote[]>(`/api/prices?${qs}`)
+      const res = await apiFetch<{ items: PriceQuote[] }>(`/api/prices?${qs}`)
+      quotes.value = res.items
     } catch (e) {
       error.value = (e as Error).message
     } finally {

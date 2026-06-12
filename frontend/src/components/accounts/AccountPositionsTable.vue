@@ -14,31 +14,31 @@
       </thead>
       <tbody>
         <tr v-for="pos in positions" :key="pos.asset.id + pos.accountId">
-          <td>
+          <td :data-label="t('common.name')">
             <div class="asset-name">{{ pos.asset.symbol }}</div>
             <div class="asset-sub">{{ pos.asset.name || pos.asset.type }}</div>
             <div v-if="pos.costBasisIncomplete" class="badge-warn">
               {{ t('accountDetail.costBasisIncomplete') }}
             </div>
           </td>
-          <td class="num">{{ pos.quantity }}</td>
-          <td class="num">{{ pos.avgCostMinor != null ? formatMoney(pos.avgCostMinor, pos.asset.currency, locale) : '—' }}</td>
-          <td class="num">
+          <td class="num" :data-label="t('accountDetail.qty')">{{ pos.quantity }}</td>
+          <td class="num" :data-label="t('accountDetail.avgCost')">{{ pos.avgCostMinor != null ? formatMoney(pos.avgCostMinor, pos.asset.currency, locale) : '—' }}</td>
+          <td class="num" :data-label="t('accountDetail.lastPrice')">
             <span v-if="pos.lastPrice != null">
-              {{ formatMoney(Math.round(parseFloat(pos.lastPrice) * 10 ** minorDigitsOf(pos.asset.currency)), pos.asset.currency, locale) }}
+              {{ formatMoney(displayToMinor(pos.lastPrice, pos.asset.currency), pos.asset.currency, locale) }}
             </span>
             <span v-else class="muted">—</span>
             <div v-if="pos.priceDate" class="price-date">{{ pos.priceDate }}</div>
           </td>
-          <td class="num">
+          <td class="num" :data-label="t('accountDetail.value')">
             <span v-if="pos.valueMinor != null">{{ formatMoney(pos.valueMinor, pos.asset.currency, locale) }}</span>
             <span v-else class="muted">—</span>
           </td>
-          <td class="num" :class="unrealizedClass(pos.unrealizedMinor)">
+          <td class="num" :data-label="t('accountDetail.unrealized')" :class="unrealizedClass(pos.unrealizedMinor)">
             <span v-if="pos.unrealizedMinor != null">{{ formatMoney(pos.unrealizedMinor, pos.asset.currency, locale) }}</span>
             <span v-else class="muted">—</span>
           </td>
-          <td class="num" :class="unrealizedClass(pos.unrealizedMinor)">
+          <td class="num" :data-label="t('accountDetail.unrealizedPct')" :class="unrealizedClass(pos.unrealizedMinor)">
             <span v-if="pos.unrealizedPct != null">{{ formatPct(pos.unrealizedPct) }}</span>
             <span v-else class="muted">—</span>
           </td>
@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { formatMoney, minorDigitsOf } from '@statok/shared'
+import { formatMoney, displayToMinor } from '@statok/shared'
 import type { Position } from '@statok/shared'
 
 defineProps<{
@@ -120,8 +120,8 @@ function formatPct(pct: string | null): string {
 
 .badge-warn {
   font-size: 0.7rem;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
   border-radius: 3px;
   padding: 1px 5px;
   margin-top: 2px;
@@ -139,10 +139,55 @@ function formatPct(pct: string | null): string {
 }
 
 .positive {
-  color: #16a34a;
+  color: var(--color-success, #16a34a);
 }
 
 .negative {
-  color: #dc2626;
+  color: var(--color-error, #dc2626);
+}
+
+/* Stacked card layout on narrow screens (CRR-7, 360px) */
+@media (max-width: 640px) {
+  .positions-table,
+  .positions-table thead,
+  .positions-table tbody,
+  .positions-table th,
+  .positions-table td,
+  .positions-table tr {
+    display: block;
+  }
+  .positions-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .positions-table tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--color-border, #e2e2e2);
+    border-radius: 8px;
+    padding: 0.25rem 0.5rem;
+  }
+  .positions-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: none;
+    padding: 0.3rem 0.2rem;
+    text-align: right;
+  }
+  .positions-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    opacity: 0.65;
+    text-align: left;
+  }
+  .num {
+    text-align: right;
+  }
+  .empty::before {
+    content: none;
+  }
 }
 </style>

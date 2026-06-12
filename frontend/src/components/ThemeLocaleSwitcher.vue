@@ -1,27 +1,30 @@
 <template>
   <div class="tls">
-    <button
+    <TButton
       class="tls-btn"
+      mode="ghost"
+      size="small"
+      :label="locale === 'uk' ? 'UK' : 'EN'"
       :title="t('settings.language')"
       :aria-label="t('settings.language')"
       @click="toggleLocale"
-    >
-      <span class="tls-label" aria-hidden="true">{{ locale === 'uk' ? 'UK' : 'EN' }}</span>
-    </button>
-    <button
+    />
+    <TButton
       class="tls-btn"
-      :title="t('settings.theme')"
-      :aria-label="t('settings.theme')"
+      mode="ghost"
+      size="small"
+      :icon="themeIcon"
+      :title="themeLabel"
+      :aria-label="themeLabel"
       @click="cycleTheme"
-    >
-      <span class="tls-label tls-icon" aria-hidden="true">{{ themeIcon }}</span>
-    </button>
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TButton } from '@vitaliysimkin/t-components'
 import { useTheme } from '@/composables/useTheme'
 import { useLocale } from '@/composables/useLocale'
 
@@ -32,9 +35,15 @@ const { locale, setLocale } = useLocale()
 const THEME_CYCLE = ['light', 'dark', 'auto'] as const
 
 const themeIcon = computed(() => {
-  if (theme.value === 'light') return '☀'
-  if (theme.value === 'dark') return '☾'
-  return '⊙'
+  if (theme.value === 'light') return 'system-uicons:sun'
+  if (theme.value === 'dark') return 'system-uicons:moon'
+  return 'system-uicons:circle-split'
+})
+
+const themeLabel = computed(() => {
+  if (theme.value === 'light') return t('settings.themeLight')
+  if (theme.value === 'dark') return t('settings.themeDark')
+  return t('settings.themeAuto')
 })
 
 function cycleTheme() {
@@ -52,26 +61,5 @@ function toggleLocale() {
   display: flex;
   gap: 0.25rem;
   align-items: center;
-}
-
-.tls-btn {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  color: #ccc;
-  cursor: pointer;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.8rem;
-  line-height: 1.2;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.tls-btn:hover {
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.6);
-}
-
-.tls-icon {
-  font-size: 0.9rem;
 }
 </style>

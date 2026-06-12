@@ -6,22 +6,23 @@
       <!-- symbol — read-only on edit -->
       <div class="field">
         <label for="af-symbol">{{ t('assets.symbol') }}</label>
-        <TInput id="af-symbol" v-model="form.symbol" :disabled="!!asset" required />
+        <TInput id="af-symbol" ref="symbolField" v-model="form.symbol" :disabled="!!asset" required />
       </div>
 
       <div class="field">
         <label for="af-name">{{ t('assets.name') }}</label>
-        <TInput id="af-name" v-model="form.name" />
+        <TInput id="af-name" ref="nameField" v-model="form.name" />
       </div>
 
       <div class="field">
         <label for="af-type">{{ t('assets.type') }}</label>
-        <select id="af-type" v-model="form.type" :disabled="!!asset" required>
-          <option value="stock">{{ t('assets.typeStock') }}</option>
-          <option value="etf">{{ t('assets.typeEtf') }}</option>
-          <option value="bond">{{ t('assets.typeBond') }}</option>
-          <option value="crypto">{{ t('assets.typeCrypto') }}</option>
-        </select>
+        <TSelect
+          id="af-type"
+          v-model="form.type"
+          :options="typeOptions"
+          value-mode="value"
+          :disabled="!!asset"
+        />
       </div>
 
       <div class="field">
@@ -31,10 +32,12 @@
 
       <div class="field">
         <label for="af-price-source">{{ t('assets.priceSource') }}</label>
-        <select id="af-price-source" v-model="form.priceSource">
-          <option value="yahoo">{{ t('assets.priceSourceYahoo') }}</option>
-          <option value="manual">{{ t('assets.priceSourceManual') }}</option>
-        </select>
+        <TSelect
+          id="af-price-source"
+          v-model="form.priceSource"
+          :options="priceSourceOptions"
+          value-mode="value"
+        />
       </div>
 
       <!-- Bond block -->
@@ -49,13 +52,12 @@
 
         <div class="field">
           <label for="af-freq">{{ t('bond.couponFrequency') }}</label>
-          <select id="af-freq" v-model.number="bondForm.couponFrequency" required>
-            <option :value="0">{{ t('bond.freqZero') }}</option>
-            <option :value="1">{{ t('bond.freqAnnual') }}</option>
-            <option :value="2">{{ t('bond.freqSemiAnnual') }}</option>
-            <option :value="4">{{ t('bond.freqQuarterly') }}</option>
-            <option :value="12">{{ t('bond.freqMonthly') }}</option>
-          </select>
+          <TSelect
+            id="af-freq"
+            v-model="bondForm.couponFrequency"
+            :options="couponFrequencyOptions"
+            value-mode="value"
+          />
         </div>
 
         <div v-if="bondForm.couponFrequency > 0" class="field">
@@ -90,9 +92,9 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { TInput, TButton } from '@vitaliysimkin/t-components'
+import { TInput, TButton, TSelect } from '@vitaliysimkin/t-components'
 import { displayToMinor, minorToDisplay } from '@statok/shared'
 import type { Asset, CreateAssetRequest, UpdateAssetRequest } from '@statok/shared'
 
@@ -107,8 +109,38 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
+const typeOptions = computed(() => [
+  { value: 'stock', label: t('assets.typeStock') },
+  { value: 'etf', label: t('assets.typeEtf') },
+  { value: 'bond', label: t('assets.typeBond') },
+  { value: 'crypto', label: t('assets.typeCrypto') },
+])
+
+const priceSourceOptions = computed(() => [
+  { value: 'yahoo', label: t('assets.priceSourceYahoo') },
+  { value: 'manual', label: t('assets.priceSourceManual') },
+])
+
+const couponFrequencyOptions = computed(() => [
+  { value: 0, label: t('bond.freqZero') },
+  { value: 1, label: t('bond.freqAnnual') },
+  { value: 2, label: t('bond.freqSemiAnnual') },
+  { value: 4, label: t('bond.freqQuarterly') },
+  { value: 12, label: t('bond.freqMonthly') },
+])
+
 const saving = ref(false)
 const err = ref<string | null>(null)
+
+const symbolField = ref<{ inputRef?: HTMLInputElement } | null>(null)
+const nameField = ref<{ inputRef?: HTMLInputElement } | null>(null)
+
+onMounted(async () => {
+  await nextTick()
+  // symbol is read-only on edit — focus name there instead
+  const target = props.asset ? nameField.value : symbolField.value
+  target?.inputRef?.focus()
+})
 
 const form = reactive({
   symbol: '',
@@ -225,14 +257,6 @@ function submit() {
   font-size: 0.85rem;
   font-weight: 500;
   opacity: 0.8;
-}
-
-.field select {
-  padding: 0.4rem 0.6rem;
-  border-radius: 4px;
-  border: 1px solid var(--t-border, #ccc);
-  background: var(--t-bg, #fff);
-  font-size: 0.95rem;
 }
 
 .section-divider {

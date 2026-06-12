@@ -200,15 +200,10 @@ exportRouter.get('/positions.csv', async (c) => {
   for (const pos of state.positions) {
     const currency = pos.asset.currency
     let valueBase = ''
-    let unrealizedBase = ''
     if (pos.valueMinor !== null) {
       try {
         const res = await convert(pos.valueMinor, currency as never, BASE_CURRENCY as never, asOf)
         valueBase = toMajor(res.amountMinor, BASE_CURRENCY)
-        if (pos.unrealizedMinor !== null) {
-          const ur = await convert(pos.unrealizedMinor, currency as never, BASE_CURRENCY as never, asOf)
-          unrealizedBase = toMajor(ur.amountMinor, BASE_CURRENCY)
-        }
       } catch (err) {
         if (!(err instanceof FxRateNotFoundError)) throw err
       }

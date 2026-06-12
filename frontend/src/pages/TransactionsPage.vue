@@ -49,13 +49,25 @@
 
     <!-- Pagination -->
     <footer v-if="total > pageSize" class="pager">
-      <button type="button" class="btn ghost" :disabled="page === 0" :aria-label="t('common.prevPage')" @click="prevPage">‹</button>
+      <TButton
+        mode="ghost"
+        icon="system-uicons:chevron-left"
+        :disabled="page === 0"
+        :aria-label="t('common.prevPage')"
+        @click="prevPage"
+      />
       <span aria-live="polite">{{ t('transactions.page') }} {{ page + 1 }} {{ t('transactions.of') }} {{ totalPages }}</span>
-      <button type="button" class="btn ghost" :disabled="page + 1 >= totalPages" :aria-label="t('common.nextPage')" @click="nextPage">›</button>
+      <TButton
+        mode="ghost"
+        icon="system-uicons:chevron-right"
+        :disabled="page + 1 >= totalPages"
+        :aria-label="t('common.nextPage')"
+        @click="nextPage"
+      />
     </footer>
 
     <!-- Modal: transaction form -->
-    <div v-if="showForm" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="editing ? t('transactionForm.editTitle') : t('transactionForm.title')" @click.self="closeForm">
+    <div v-if="showForm" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="editing ? t('transactionForm.editTitle') : t('transactionForm.title')" @click.self="closeForm" @keydown.esc="closeForm">
       <div class="modal">
         <TransactionForm
           :accounts="accounts"
@@ -67,23 +79,26 @@
       </div>
     </div>
 
-    <!-- Modal: transfer form -->
-    <div v-if="showTransfer" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="t('transfer.title')" @click.self="closeForm">
+    <!-- Modal: transfer form (create or edit both legs) -->
+    <div v-if="showTransfer" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="editingTransfer ? t('transactions.editTransfer') : t('transfer.title')" @click.self="closeForm" @keydown.esc="closeForm">
       <div class="modal">
-        <TransferForm :accounts="accounts" @cancel="closeForm" @saved="onSaved" />
+        <TransferForm :accounts="accounts" :edit="editingTransfer" @cancel="closeForm" @saved="onSaved" />
       </div>
     </div>
 
     <!-- Delete confirmation -->
-    <div v-if="deleteTarget" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="t('transactions.deleteConfirm')" @click.self="deleteTarget = null">
-      <div class="modal confirm">
+    <div v-if="deleteTarget" class="modal-backdrop" role="dialog" aria-modal="true" :aria-label="t('transactions.deleteConfirm')" @click.self="deleteTarget = null" @keydown.esc="deleteTarget = null">
+      <div ref="deleteDialogRef" class="modal confirm" tabindex="-1">
         <p>{{ deleteTarget.transferGroupId ? t('transactions.deleteTransferConfirm') : t('transactions.deleteConfirm') }}</p>
         <p v-if="deleteError" class="status err">{{ deleteError }}</p>
         <div class="confirm-actions">
-          <button type="button" class="btn ghost" @click="deleteTarget = null">{{ t('common.cancel') }}</button>
-          <button type="button" class="btn danger" :disabled="deleting" @click="doDelete">
-            {{ deleting ? t('common.loading') : t('common.delete') }}
-          </button>
+          <TButton mode="ghost" :label="t('common.cancel')" @click="deleteTarget = null" />
+          <TButton
+            variant="danger"
+            :label="deleting ? t('common.loading') : t('common.delete')"
+            :disabled="deleting"
+            @click="doDelete"
+          />
         </div>
       </div>
     </div>
@@ -91,20 +106,23 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TButton } from '@vitaliysimkin/t-components'
 import { TRANSACTION_TYPES } from '@statok/shared'
 import type { Transaction, TransactionListItem } from '@statok/shared'
 import { useTransactions } from '@/composables/useTransactions'
 import { useAccounts } from '@/composables/useAccounts'
 import { useAssets } from '@/composables/useAssets'
-import { ApiError } from '@/services/api'
+import { ApiError, errKey } from '@/services/api'
 import TransactionsTable from '@/components/transactions/TransactionsTable.vue'
 import TransactionForm from '@/components/transactions/TransactionForm.vue'
-import TransferForm from '@/components/transactions/TransferForm.vue'
+import TransferForm, { type TransferEdit } from '@/components/transactions/TransferForm.vue'
 
 const { t } = useI18n()
 const { items, total, loading, error, list, get, remove } = useTransactions()
+// Separate instance for resolving a transfer's sibling leg without disturbing the main list.
+const { list: lookupList, items: lookupItems } = useTransactions()
 const { accounts, list: listAccounts } = useAccounts()
 const { assets, list: listAssets } = useAssets()
 
@@ -185,31 +203,59 @@ function prevPage() {
 const showForm = ref(false)
 const showTransfer = ref(false)
 const editing = ref<Transaction | null>(null)
+const editingTransfer = ref<TransferEdit | null>(null)
 
 function openCreate() {
   editing.value = null
+  editingTransfer.value = null
   showTransfer.value = false
   showForm.value = true
 }
 function openTransfer() {
   editing.value = null
+  editingTransfer.value = null
   showForm.value = false
   showTransfer.value = true
 }
 async function openEdit(row: TransactionListItem) {
-  // Transfer legs and ticker_change are not editable through the generic form here.
   try {
+    // Transfer legs open the dedicated transfer form (both legs) — never the generic form.
+    if (row.transferGroupId) {
+      editingTransfer.value = await resolveTransferEdit(row)
+      editing.value = null
+      showForm.value = false
+      showTransfer.value = true
+      return
+    }
     editing.value = await get(row.id)
+    editingTransfer.value = null
     showTransfer.value = false
     showForm.value = true
   } catch (e) {
     error.value = e instanceof ApiError ? e.message : t('errors.UNKNOWN')
   }
 }
+
+/** Load both legs of a transfer and orient them as out/in for the edit form. */
+async function resolveTransferEdit(row: TransactionListItem): Promise<TransferEdit> {
+  const clicked = await get(row.id)
+  // Both legs share executedAt + transferGroupId; fetch the instant and pick the sibling.
+  await lookupList({ from: clicked.executedAt, to: clicked.executedAt, limit: 500 })
+  const sibling = lookupItems.value.find(
+    (r) => r.transferGroupId === clicked.transferGroupId && r.id !== clicked.id,
+  )
+  if (!sibling) throw new ApiError(404, 'NOT_FOUND', 'Transfer pair not found')
+  const other = await get(sibling.id)
+  const out = clicked.type === 'transfer_out' ? clicked : other
+  const inLeg = clicked.type === 'transfer_in' ? clicked : other
+  return { out, in: inLeg }
+}
+
 function closeForm() {
   showForm.value = false
   showTransfer.value = false
   editing.value = null
+  editingTransfer.value = null
 }
 function onSaved() {
   closeForm()
@@ -220,11 +266,19 @@ function onSaved() {
 const deleteTarget = ref<TransactionListItem | null>(null)
 const deleting = ref(false)
 const deleteError = ref('')
+const deleteDialogRef = ref<HTMLElement | null>(null)
 
 function confirmDelete(row: TransactionListItem) {
   deleteError.value = ''
   deleteTarget.value = row
 }
+
+// Autofocus the confirm dialog so Esc works and the action is reachable from the keyboard.
+watch(deleteTarget, async (v) => {
+  if (!v) return
+  await nextTick()
+  deleteDialogRef.value?.focus()
+})
 async function doDelete() {
   if (!deleteTarget.value) return
   deleting.value = true
@@ -234,12 +288,7 @@ async function doDelete() {
     deleteTarget.value = null
     void load()
   } catch (e) {
-    deleteError.value =
-      e instanceof ApiError
-        ? t(`errors.${e.code}`) !== `errors.${e.code}`
-          ? t(`errors.${e.code}`)
-          : e.message
-        : t('errors.UNKNOWN')
+    deleteError.value = e instanceof ApiError ? t(errKey(e)) : t('errors.UNKNOWN')
   } finally {
     deleting.value = false
   }

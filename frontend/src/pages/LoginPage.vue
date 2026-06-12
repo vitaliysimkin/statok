@@ -5,7 +5,7 @@
       <form class="login-form" @submit.prevent="handleSubmit">
         <div class="field">
           <label for="username">{{ t('auth.username') }}</label>
-          <input
+          <TInput
             id="username"
             v-model="usernameInput"
             type="text"
@@ -16,7 +16,7 @@
         </div>
         <div class="field">
           <label for="password">{{ t('auth.password') }}</label>
-          <input
+          <TInput
             id="password"
             v-model="passwordInput"
             type="password"
@@ -26,9 +26,12 @@
           />
         </div>
         <p v-if="errorMsg" class="login-error" role="alert">{{ errorMsg }}</p>
-        <button type="submit" :disabled="loading" class="login-btn">
-          {{ loading ? t('common.loading') : t('auth.login') }}
-        </button>
+        <TButton
+          type="submit"
+          variant="accent"
+          :disabled="loading"
+          :label="loading ? t('common.loading') : t('auth.login')"
+        />
       </form>
     </div>
   </div>
@@ -38,8 +41,9 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { TInput, TButton } from '@vitaliysimkin/t-components'
 import { useAuth } from '@/composables/useAuth'
-import { ApiError } from '@/services/api'
+import { ApiError, errKey } from '@/services/api'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -60,7 +64,7 @@ async function handleSubmit() {
     if (e instanceof ApiError && e.status === 401) {
       errorMsg.value = t('auth.loginError')
     } else {
-      errorMsg.value = t('common.error')
+      errorMsg.value = t(errKey(e))
     }
   } finally {
     loading.value = false
@@ -103,35 +107,9 @@ async function handleSubmit() {
   font-size: 0.875rem;
   font-weight: 500;
 }
-.field input {
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 4px;
-  font-size: 1rem;
-  background: var(--color-input-bg, #fff);
-  color: var(--color-text, #000);
-}
-.field input:focus {
-  outline: 2px solid var(--color-accent, #2563eb);
-  outline-offset: 1px;
-}
 .login-error {
   margin: 0;
   color: var(--color-error, #dc2626);
   font-size: 0.875rem;
-}
-.login-btn {
-  padding: 0.625rem 1rem;
-  border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--color-accent, #2563eb);
-  color: #fff;
-}
-.login-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 </style>

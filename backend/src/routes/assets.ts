@@ -39,6 +39,9 @@ type AssetType = typeof ASSET_TYPES[number]
 const PRICE_SOURCES = ['yahoo', 'manual'] as const
 type PriceSource = typeof PRICE_SOURCES[number]
 
+/** Writable bond_details fields accepted in a bond block (POST create / PUT merge). */
+const BOND_FIELDS = ['faceValueMinor', 'couponRatePercent', 'couponFrequency', 'maturityDate', 'issueDate', 'isin'] as const
+
 /** RFC-4122 UUID shape; an invalid :id must 404, not surface a Postgres cast error (500). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -195,9 +198,21 @@ assetsRouter.put('/:id', async (c) => {
   let bondValues: ReturnType<typeof bondInputToValues> | null = null
   if (updatesBond) {
     const bondInput = b['bond'] as Record<string, unknown>
-    const bondErr = validateBondInput(bondInput, true)
+    // An empty bond block carries no update intent — reject rather than silently
+    // re-write the stored row (also covers `bond:{}` → 400, never a 500).
+    if (!BOND_FIELDS.some((k) => k in bondInput)) {
+      return c.json({ error: 'VALIDATION_ERROR', message: 'bond must contain at least one field to update' }, 400)
+    }
+    // Partial bond updates merge supplied fields onto the existing row so missing
+    // NOT NULL columns keep their stored value (no NaN/'undefined' reaching SQL).
+    // When no bond_details row exists yet, the merge base is empty, so a structurally
+    // incomplete block fails full validation with 400 instead of 500.
+    const existing = await db.select().from(bondDetails)
+      .where(eq(bondDetails.assetId, id)).limit(1)
+    const effective = mergeBondInput(existing[0], bondInput)
+    const bondErr = validateBondInput(effective)
     if (bondErr) return c.json({ error: 'VALIDATION_ERROR', message: bondErr }, 400)
-    bondValues = bondInputToValues(id, bondInput)
+    bondValues = bondInputToValues(id, effective)
   }
 
   await db.transaction(async (tx) => {
@@ -234,8 +249,7 @@ assetsRouter.delete('/:id', async (c) => {
     .where(eq(transactions.assetId, id))
     .limit(1)
   if (txRows.length > 0) {
-    const errCode = row.type === 'cash' ? 'ASSET_HAS_TRANSACTIONS' : 'ASSET_HAS_TRANSACTIONS'
-    return c.json({ error: errCode, message: 'Cannot delete an asset with transactions; archive it instead' }, 409)
+    return c.json({ error: 'ASSET_HAS_TRANSACTIONS', message: 'Cannot delete an asset with transactions; archive it instead' }, 409)
   }
 
   // CASCADE in DB handles price_quotes and bond_details
@@ -380,15 +394,40 @@ function assetToDto(
   }
 }
 
-function validateBondInput(b: Record<string, unknown>, partial = false): string | null {
-  if (!partial) {
-    if (typeof b['faceValueMinor'] !== 'number' || b['faceValueMinor'] <= 0) {
-      return 'bond.faceValueMinor must be a positive integer'
-    }
-    if (b['couponRatePercent'] == null) return 'bond.couponRatePercent is required'
-    if (b['couponFrequency'] == null) return 'bond.couponFrequency is required'
-    if (!b['maturityDate']) return 'bond.maturityDate is required'
+/**
+ * Merge a partial bond block onto the existing bond_details row (if any) so a
+ * PUT updating only some fields keeps the stored value for the rest. With no
+ * existing row the base is empty, so an incomplete block fails full validation
+ * (400) rather than writing NaN/'undefined' into NOT NULL columns (500).
+ */
+function mergeBondInput(
+  existing: typeof bondDetails.$inferSelect | undefined,
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const base: Record<string, unknown> = existing
+    ? {
+        faceValueMinor: existing.faceValueMinor,
+        couponRatePercent: existing.couponRatePercent,
+        couponFrequency: existing.couponFrequency,
+        maturityDate: existing.maturityDate,
+        issueDate: existing.issueDate ?? undefined,
+        isin: existing.isin ?? undefined,
+      }
+    : {}
+  // Override only keys explicitly supplied in the request (present-key intent).
+  for (const k of BOND_FIELDS) {
+    if (k in input) base[k] = input[k]
   }
+  return base
+}
+
+function validateBondInput(b: Record<string, unknown>): string | null {
+  if (typeof b['faceValueMinor'] !== 'number' || b['faceValueMinor'] <= 0) {
+    return 'bond.faceValueMinor must be a positive integer'
+  }
+  if (b['couponRatePercent'] == null) return 'bond.couponRatePercent is required'
+  if (b['couponFrequency'] == null) return 'bond.couponFrequency is required'
+  if (!b['maturityDate']) return 'bond.maturityDate is required'
 
   const VALID_FREQ = [0, 1, 2, 4, 12]
   if ('couponFrequency' in b && !VALID_FREQ.includes(Number(b['couponFrequency']))) {

@@ -44,33 +44,6 @@ export function useSettings() {
     return apiFetch('/api/fx/sync', { method: 'POST' })
   }
 
-  async function exportCsv(): Promise<Blob> {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_URL ?? 'http://localhost:3100'}/api/export`,
-      {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('statok_token') ?? ''}`,
-        },
-      },
-    )
-    if (!res.ok) throw new Error(`Export failed: ${res.status}`)
-    return res.blob()
-  }
-
-  async function triggerBackup(): Promise<Blob> {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_URL ?? 'http://localhost:3100'}/api/backup`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('statok_token') ?? ''}`,
-        },
-      },
-    )
-    if (!res.ok) throw new Error(`Backup failed: ${res.status}`)
-    return res.blob()
-  }
-
   return {
     settings,
     loading,
@@ -80,7 +53,5 @@ export function useSettings() {
     triggerSnapshotRebuild,
     triggerPricesSync,
     triggerFxSync,
-    exportCsv,
-    triggerBackup,
   }
 }

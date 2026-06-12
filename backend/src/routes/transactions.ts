@@ -39,7 +39,6 @@ export const transactionsRouter = new Hono<AppEnv>()
 
 transactionsRouter.use('*', authMiddleware)
 
-const INCOME_TYPES = new Set<TransactionType>(['dividend', 'coupon', 'interest'])
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

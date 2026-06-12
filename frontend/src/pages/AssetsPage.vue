@@ -12,20 +12,18 @@
 
     <!-- Filter by type -->
     <div class="filter-bar">
-      <button
-        v-for="opt in typeOptions"
-        :key="opt.value"
-        class="filter-btn"
-        :class="{ active: typeFilter === opt.value }"
-        :aria-pressed="typeFilter === opt.value"
-        @click="typeFilter = opt.value"
-      >
-        {{ opt.label }}
-      </button>
-      <label class="archived-toggle">
-        <input v-model="showArchived" type="checkbox" />
-        {{ t('assets.includeArchived') }}
-      </label>
+      <TButtonGroup
+        v-model="typeFilter"
+        :options="typeOptions"
+        size="small"
+        mandatory
+      />
+      <TSwitch
+        v-model="showArchived"
+        :label="t('assets.includeArchived')"
+        size="small"
+        class="archived-toggle"
+      />
     </div>
 
     <div v-if="loading" class="page-msg">{{ t('common.loading') }}</div>
@@ -53,11 +51,11 @@
             <span class="asset-symbol">{{ a.symbol }}</span>
             <span class="asset-name">{{ a.name }}</span>
             <TTag variant="gray" size="small">{{ typeLabel(a.type) }}</TTag>
-            <TTag v-if="a.archivedAt" variant="yellow" size="small">{{ t('common.status') }}</TTag>
+            <TTag v-if="a.archivedAt" variant="yellow" size="small">{{ t('assets.archived') }}</TTag>
           </div>
           <div class="asset-card-meta">
             <span class="asset-currency">{{ a.currency }}</span>
-            <span class="asset-source">{{ a.priceSource }}</span>
+            <span class="asset-source">{{ priceSourceLabel(a.priceSource) }}</span>
           </div>
           <div class="asset-card-actions" @click.stop>
             <TButton icon="system-uicons:pencil" mode="ghost" size="mini" :aria-label="t('common.edit')" @click="openEdit(a)" />
@@ -116,7 +114,7 @@
 
     <!-- Delete confirm dialog -->
     <div v-if="deleteTarget" class="dialog-overlay" role="dialog" aria-modal="true" :aria-label="t('assets.deleteConfirm', { symbol: deleteTarget?.symbol })" @click.self="deleteTarget = null">
-      <div class="dialog-box confirm-box">
+      <div ref="deleteBox" class="dialog-box confirm-box">
         <p>{{ t('assets.deleteConfirm', { symbol: deleteTarget.symbol }) }}</p>
         <div class="confirm-actions">
           <TButton :label="t('common.delete')" variant="danger" @click="doDelete" />
@@ -129,9 +127,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { TButton, TTag } from '@vitaliysimkin/t-components'
+import { TButton, TTag, TButtonGroup, TSwitch } from '@vitaliysimkin/t-components'
 import type { Asset, CreateAssetRequest, UpdateAssetRequest } from '@statok/shared'
 import { useAssets } from '@/composables/useAssets'
 import AssetForm from '@/components/assets/AssetForm.vue'
@@ -141,7 +139,7 @@ import PriceHistory from '@/components/assets/PriceHistory.vue'
 const { t } = useI18n()
 const { assets, loading, error, list, create, update } = useAssets()
 
-const typeFilter = ref<string>('all')
+const typeFilter = ref<string | number | null>('all')
 const showArchived = ref(false)
 const selectedId = ref<string | null>(null)
 
@@ -151,6 +149,7 @@ const formErr = ref<string | null>(null)
 
 const deleteTarget = ref<Asset | null>(null)
 const deleteErr = ref<string | null>(null)
+const deleteBox = ref<HTMLElement | null>(null)
 
 const typeOptions = computed(() => [
   { value: 'all', label: t('common.all') },
@@ -177,6 +176,10 @@ function typeLabel(type: string): string {
     cash: t('assets.typeCash'),
   }
   return map[type] ?? type
+}
+
+function priceSourceLabel(source: string): string {
+  return source === 'manual' ? t('assets.priceSourceManual') : t('assets.priceSourceYahoo')
 }
 
 function toggleSelect(id: string) {
@@ -248,7 +251,28 @@ function onTickerChanged(id: string, newSymbol: string) {
   if (a) a.symbol = newSymbol
 }
 
+function onDialogKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (deleteTarget.value) deleteTarget.value = null
+  else if (formOpen.value) closeForm()
+}
+
+watch(
+  () => formOpen.value || !!deleteTarget.value,
+  (open) => {
+    if (open) window.addEventListener('keydown', onDialogKeydown)
+    else window.removeEventListener('keydown', onDialogKeydown)
+  },
+)
+
+watch(deleteTarget, async (target) => {
+  if (!target) return
+  await nextTick()
+  deleteBox.value?.querySelector('button')?.focus()
+})
+
 onMounted(() => list())
+onBeforeUnmount(() => window.removeEventListener('keydown', onDialogKeydown))
 </script>
 
 <style scoped>
@@ -279,28 +303,7 @@ onMounted(() => list())
   margin-bottom: 1rem;
 }
 
-.filter-btn {
-  padding: 0.25rem 0.75rem;
-  border-radius: 16px;
-  border: 1px solid var(--t-border, #ccc);
-  background: transparent;
-  cursor: pointer;
-  font-size: 0.85rem;
-  transition: background 0.15s, color 0.15s;
-}
-
-.filter-btn.active {
-  background: var(--t-accent, #3b82f6);
-  color: #fff;
-  border-color: transparent;
-}
-
 .archived-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-  cursor: pointer;
   margin-left: auto;
 }
 

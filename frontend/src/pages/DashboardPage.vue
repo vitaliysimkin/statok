@@ -6,16 +6,12 @@
     <section class="dashboard__section">
       <div class="dashboard__section-header">
         <h2>{{ t('dashboard.netWorth') }}</h2>
-        <div class="dashboard__periods">
-          <button
-            v-for="p in periods"
-            :key="p.key"
-            class="dashboard__period-btn"
-            :class="{ 'dashboard__period-btn--active': activePeriod === p.key }"
-            :aria-pressed="activePeriod === p.key"
-            @click="selectPeriod(p.key)"
-          >{{ t(`dashboard.${p.key}`) }}</button>
-        </div>
+        <TButtonGroup
+          v-model="activePeriod"
+          :options="periodOptions"
+          :mandatory="true"
+          size="small"
+        />
       </div>
 
       <div v-if="loading" class="dashboard__loading">{{ t('common.loading') }}</div>
@@ -38,16 +34,20 @@
     <section class="dashboard__section">
       <div class="dashboard__section-header">
         <h2>{{ t('dashboard.cashflow') }}</h2>
-        <div class="dashboard__periods">
-          <button
-            v-for="g in groupByOptions"
-            :key="g.key"
-            class="dashboard__period-btn"
-            :class="{ 'dashboard__period-btn--active': activeGroupBy === g.key }"
-            :aria-pressed="activeGroupBy === g.key"
-            @click="selectGroupBy(g.key as GroupBy)"
-          >{{ t(`dashboard.${g.label}`) }}</button>
-        </div>
+        <TButtonGroup
+          v-model="activeGroupBy"
+          :options="groupByOptions"
+          :mandatory="true"
+          size="small"
+        />
+      </div>
+
+      <div
+        v-if="cashflow?.valuationIncomplete"
+        class="dashboard__valuation-badge"
+        role="status"
+      >
+        {{ t('dashboard.valuationIncomplete') }}
       </div>
 
       <div v-if="cfLoading" class="dashboard__loading">{{ t('common.loading') }}</div>
@@ -57,7 +57,13 @@
           {{ t('common.noData') }}
         </div>
         <template v-else>
-          <CashflowChart :periods="cashflowPeriods" :currency="baseCurrency" />
+          <CashflowChart
+            :periods="cashflowPeriods"
+            :currency="baseCurrency"
+            :label-deposits="t('dashboard.deposits')"
+            :label-withdrawals="t('dashboard.withdrawals')"
+            :label-net="t('dashboard.net')"
+          />
           <div class="cashflow-table-wrap">
             <table class="cashflow-table" :aria-label="t('dashboard.cashflow')">
               <thead>
@@ -93,38 +99,38 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TButtonGroup } from '@vitaliysimkin/t-components'
 import { useDashboards } from '@/composables/useDashboards'
 import { formatMoney } from '@statok/shared'
 import type { NetWorthSeriesPoint, CashflowPeriod } from '@statok/shared'
 import NetWorthChart from '@/components/charts/NetWorthChart.vue'
 import CashflowChart from '@/components/charts/CashflowChart.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 type PeriodKey = 'period1m' | 'period3m' | 'period1y' | 'periodAll'
 type GroupBy = 'month' | 'quarter' | 'year'
 
-const periods = [
-  { key: 'period1m' },
-  { key: 'period3m' },
-  { key: 'period1y' },
-  { key: 'periodAll' },
-] as const
+const periodOptions = computed(() => [
+  { value: 'period1m', label: t('dashboard.period1m') },
+  { value: 'period3m', label: t('dashboard.period3m') },
+  { value: 'period1y', label: t('dashboard.period1y') },
+  { value: 'periodAll', label: t('dashboard.periodAll') },
+])
 
-const groupByOptions = [
-  { key: 'month', label: 'groupByMonth' },
-  { key: 'quarter', label: 'groupByQuarter' },
-  { key: 'year', label: 'groupByYear' },
-]
+const groupByOptions = computed(() => [
+  { value: 'month', label: t('dashboard.groupByMonth') },
+  { value: 'quarter', label: t('dashboard.groupByQuarter') },
+  { value: 'year', label: t('dashboard.groupByYear') },
+])
 
 const activePeriod = ref<PeriodKey>('period1m')
 const activeGroupBy = ref<GroupBy>('month')
 
 const { networthSeries, cashflow, loading, error, fetchNetworthSeries, fetchCashflow } = useDashboards()
 
-// Separate loading/error refs for cashflow
 const cfLoading = ref(false)
 const cfError = ref<string | null>(null)
 
@@ -136,11 +142,11 @@ const formattedCurrentValue = computed(() => {
   const pts = networthPoints.value
   if (!pts.length) return '—'
   const last = pts[pts.length - 1]
-  return formatMoney(last.totalMinor, baseCurrency.value, 'uk')
+  return formatMoney(last.totalMinor, baseCurrency.value, locale.value)
 })
 
 function fmt(minor: number): string {
-  return formatMoney(minor, baseCurrency.value, 'uk')
+  return formatMoney(minor, baseCurrency.value, locale.value)
 }
 
 function periodRange(key: PeriodKey): { from?: string; to?: string } {
@@ -162,13 +168,11 @@ function periodRange(key: PeriodKey): { from?: string; to?: string } {
   return {}
 }
 
-async function selectPeriod(key: PeriodKey) {
-  activePeriod.value = key
-  await fetchNetworthSeries(periodRange(key))
-}
+watch(activePeriod, (key) => {
+  fetchNetworthSeries(periodRange(key))
+})
 
-async function selectGroupBy(g: GroupBy) {
-  activeGroupBy.value = g
+watch(activeGroupBy, async (g) => {
   cfLoading.value = true
   cfError.value = null
   try {
@@ -178,7 +182,7 @@ async function selectGroupBy(g: GroupBy) {
   } finally {
     cfLoading.value = false
   }
-}
+})
 
 onMounted(async () => {
   await Promise.all([
@@ -212,25 +216,6 @@ onMounted(async () => {
   margin: 0;
   font-size: 1.1rem;
 }
-.dashboard__periods {
-  display: flex;
-  gap: 0.25rem;
-  flex-wrap: wrap;
-}
-.dashboard__period-btn {
-  padding: 0.2rem 0.6rem;
-  border: 1px solid var(--color-border, #444);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--color-text-secondary, #aaa);
-}
-.dashboard__period-btn--active {
-  background: var(--color-accent, #4f8ef7);
-  color: #fff;
-  border-color: var(--color-accent, #4f8ef7);
-}
 .dashboard__loading,
 .dashboard__error,
 .dashboard__empty {
@@ -251,6 +236,15 @@ onMounted(async () => {
   font-size: 1rem;
   color: var(--color-text-secondary, #aaa);
   margin-left: 0.25rem;
+}
+.dashboard__valuation-badge {
+  display: inline-block;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  margin-bottom: 0.75rem;
 }
 .cashflow-table-wrap {
   overflow-x: auto;

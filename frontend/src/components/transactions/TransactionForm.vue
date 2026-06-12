@@ -1,13 +1,17 @@
 <template>
-  <form class="tx-form" @submit.prevent="handleSubmit">
+  <form ref="formRef" class="tx-form" @submit.prevent="handleSubmit">
     <h2 class="form-title">{{ isEdit ? t('transactionForm.editTitle') : t('transactionForm.title') }}</h2>
 
     <!-- Type: locked on edit (type is immutable per spec §4) -->
     <div class="field">
       <label for="tx-type">{{ t('transactions.type') }}</label>
-      <select id="tx-type" v-model="type" :disabled="isEdit" required>
-        <option v-for="tt in selectableTypes" :key="tt" :value="tt">{{ typeLabel(tt) }}</option>
-      </select>
+      <TSelect
+        id="tx-type"
+        v-model="type"
+        value-mode="value"
+        :options="typeOptions"
+        :disabled="isEdit"
+      />
     </div>
 
     <!-- opening_balance sub-mode: asset position vs cash balance -->
@@ -28,31 +32,35 @@
 
     <div class="field">
       <label for="tx-date">{{ t('transactions.date') }}</label>
-      <input id="tx-date" v-model="dateInput" type="datetime-local" required />
+      <TDateTimeInput id="tx-date" v-model="dateInput" />
     </div>
 
     <div class="field">
       <label for="tx-account">{{ t('transactions.account') }}</label>
-      <select id="tx-account" v-model="accountId" required>
-        <option value="" disabled>{{ t('transactionForm.selectAccount') }}</option>
-        <option v-for="a in accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
-      </select>
+      <TSelect
+        id="tx-account"
+        v-model="accountId"
+        value-mode="value"
+        :options="accountOptions"
+        :placeholder="t('transactionForm.selectAccount')"
+      />
     </div>
 
     <!-- Asset picker: required for asset-bound types; filtered by type compatibility -->
     <div v-if="show.asset" class="field">
       <label for="tx-asset">{{ t('transactions.asset') }}</label>
-      <select id="tx-asset" v-model="assetId" required>
-        <option value="" disabled>{{ t('transactionForm.selectAsset') }}</option>
-        <option v-for="a in eligibleAssets" :key="a.id" :value="a.id">
-          {{ a.symbol }} — {{ a.name }} ({{ a.currency }})
-        </option>
-      </select>
+      <TSelect
+        id="tx-asset"
+        v-model="assetId"
+        value-mode="value"
+        :options="assetOptions"
+        :placeholder="t('transactionForm.selectAsset')"
+      />
     </div>
 
     <div v-if="show.quantity" class="field">
       <label for="tx-qty">{{ type === 'split' ? t('transactions.splitMultiplier') : t('transactions.quantity') }}</label>
-      <input id="tx-qty" v-model="quantity" type="text" inputmode="decimal" required />
+      <TInput id="tx-qty" v-model="quantity" inputmode="decimal" />
     </div>
 
     <div v-if="show.price" class="field">
@@ -60,18 +68,18 @@
         {{ t('transactions.price') }}
         <span v-if="type === 'opening_balance'" class="muted">({{ t('common.optional') }})</span>
       </label>
-      <input id="tx-price" v-model="price" type="text" inputmode="decimal" :required="show.priceRequired" />
+      <TInput id="tx-price" v-model="price" inputmode="decimal" />
     </div>
 
     <div v-if="show.amount" class="field">
       <label for="tx-amount">{{ t('transactions.amount') }}</label>
-      <input id="tx-amount" v-model="amount" type="text" inputmode="decimal" :required="show.amountRequired" />
+      <TInput id="tx-amount" v-model="amount" inputmode="decimal" />
       <small v-if="type === 'buy' || type === 'sell'" class="hint">{{ t('transactionForm.amountHint') }}</small>
     </div>
 
     <div v-if="show.fee" class="field">
       <label for="tx-fee">{{ t('transactions.fee') }} <span class="muted">({{ t('common.optional') }})</span></label>
-      <input id="tx-fee" v-model="fee" type="text" inputmode="decimal" />
+      <TInput id="tx-fee" v-model="fee" inputmode="decimal" />
       <small class="hint">{{ t('transactionForm.feeHint') }}</small>
     </div>
 
@@ -79,12 +87,12 @@
     <template v-if="show.income">
       <div class="field">
         <label for="tx-gross">{{ t('transactions.gross') }}</label>
-        <input id="tx-gross" v-model="gross" type="text" inputmode="decimal" required />
+        <TInput id="tx-gross" v-model="gross" inputmode="decimal" />
         <small class="hint">{{ t('transactionForm.grossHint') }}</small>
       </div>
       <div class="field">
         <label for="tx-wht">{{ t('transactions.withholdingTax') }} <span class="muted">({{ t('common.optional') }})</span></label>
-        <input id="tx-wht" v-model="wht" type="text" inputmode="decimal" />
+        <TInput id="tx-wht" v-model="wht" inputmode="decimal" />
         <small class="hint">{{ t('transactionForm.whtHint') }}</small>
       </div>
       <p class="net-preview">{{ t('transactions.net') }}: <strong>{{ netPreview }}</strong></p>
@@ -94,29 +102,33 @@
     <!-- Currency: explicit only for pure-cash types; asset types derive it from the asset -->
     <div v-if="show.currency" class="field">
       <label for="tx-ccy">{{ t('transactions.currency') }}</label>
-      <input id="tx-ccy" v-model="currency" type="text" maxlength="3" required class="ccy" />
+      <TInput id="tx-ccy" v-model="currency" maxlength="3" class="ccy" />
     </div>
 
     <div class="field">
       <label for="tx-note">{{ t('transactions.note') }} <span class="muted">({{ t('common.optional') }})</span></label>
-      <input id="tx-note" v-model="note" type="text" />
+      <TInput id="tx-note" v-model="note" />
     </div>
 
     <p v-if="localError" class="form-error" role="alert">{{ localError }}</p>
     <p v-if="serverError" class="form-error" role="alert">{{ serverError }}</p>
 
     <div class="form-actions">
-      <button type="button" class="btn ghost" @click="emit('cancel')">{{ t('common.cancel') }}</button>
-      <button type="submit" class="btn primary" :disabled="submitting">
-        {{ submitting ? t('common.loading') : t('common.save') }}
-      </button>
+      <TButton type="button" mode="ghost" :label="t('common.cancel')" @click="emit('cancel')" />
+      <TButton
+        type="submit"
+        variant="accent"
+        :label="submitting ? t('common.loading') : t('common.save')"
+        :disabled="submitting"
+      />
     </div>
   </form>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { TButton, TDateTimeInput, TInput, TSelect } from '@vitaliysimkin/t-components'
 import { displayToMinor, formatMoney } from '@statok/shared'
 import type {
   AccountWithBalances,
@@ -126,7 +138,7 @@ import type {
   TransactionType,
 } from '@statok/shared'
 import { useTransactions } from '@/composables/useTransactions'
-import { ApiError } from '@/services/api'
+import { ApiError, errKey } from '@/services/api'
 
 const props = defineProps<{
   accounts: AccountWithBalances[]
@@ -167,6 +179,14 @@ function typeLabel(tt: string): string {
   return TYPE_KEY[tt] ? t(TYPE_KEY[tt]) : tt
 }
 
+const typeOptions = computed(() =>
+  selectableTypes.map((tt) => ({ value: tt, label: typeLabel(tt) })),
+)
+
+const accountOptions = computed(() =>
+  props.accounts.map((a) => ({ value: a.id, label: a.name })),
+)
+
 const isEdit = computed(() => !!props.edit)
 
 // ── form state ───────────────────────────────────────────────────────────────
@@ -188,10 +208,10 @@ const localError = ref('')
 const serverError = ref('')
 const submitting = ref(false)
 
+const formRef = ref<HTMLFormElement | null>(null)
+
 function nowLocal(): string {
-  const d = new Date()
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  return d.toISOString().slice(0, 16)
+  return new Date().toISOString()
 }
 
 // Asset-type compatibility per matrix: dividend↔stock/etf, coupon↔bond, interest=cash (resolved by ccy).
@@ -201,6 +221,13 @@ const eligibleAssets = computed<Asset[]>(() => {
   if (type.value === 'coupon') return nonCash.filter((a) => a.type === 'bond')
   return nonCash
 })
+
+const assetOptions = computed(() =>
+  eligibleAssets.value.map((a) => ({
+    value: a.id,
+    label: `${a.symbol} — ${a.name} (${a.currency})`,
+  })),
+)
 
 const selectedAsset = computed<Asset | undefined>(() =>
   props.assets.find((a) => a.id === assetId.value),
@@ -262,9 +289,7 @@ watch(
     price.value = tx.price ?? ''
     currency.value = tx.currency
     note.value = tx.note ?? ''
-    const d = new Date(tx.executedAt)
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-    dateInput.value = d.toISOString().slice(0, 16)
+    dateInput.value = tx.executedAt
     amount.value = tx.amountMinor != null ? minorToInput(tx.amountMinor) : ''
     fee.value = tx.feeMinor ? minorToInput(tx.feeMinor) : ''
     gross.value = tx.grossMinor != null ? minorToInput(tx.grossMinor) : ''
@@ -274,14 +299,15 @@ watch(
   { immediate: true },
 )
 
+onMounted(async () => {
+  await nextTick()
+  const first = formRef.value?.querySelector<HTMLElement>('input:not([disabled]):not([type=radio]), select:not([disabled])')
+  first?.focus()
+})
+
 function minorToInput(minor: number): string {
   // Plain decimal string with 2 digits — v1 currencies (UAH/USD/EUR) are all 2-minor.
   return (minor / 100).toFixed(2)
-}
-
-function errKey(code: string): string {
-  const translated = t(`errors.${code}`)
-  return translated !== `errors.${code}` ? translated : t('errors.UNKNOWN')
 }
 
 function parseMinorOrThrow(v: string, ccy: string): number {
@@ -296,7 +322,15 @@ async function handleSubmit() {
     .toUpperCase()
 
   // Client-side validation per matrix.
+  if (!accountId.value) {
+    localError.value = t('errors.VALIDATION_ERROR')
+    return
+  }
   if (show.value.asset && !assetId.value) {
+    localError.value = t('errors.VALIDATION_ERROR')
+    return
+  }
+  if (show.value.currency && !ccy) {
     localError.value = t('errors.VALIDATION_ERROR')
     return
   }
@@ -341,7 +375,7 @@ async function handleSubmit() {
     }
     emit('saved')
   } catch (e) {
-    serverError.value = e instanceof ApiError ? errKey(e.code) : t('errors.UNKNOWN')
+    serverError.value = e instanceof ApiError ? t(errKey(e)) : t('errors.UNKNOWN')
   } finally {
     submitting.value = false
   }
@@ -395,23 +429,9 @@ async function handleSubmit() {
   margin: 0.2rem 0 0;
   font-size: 0.95rem;
 }
-input,
-select {
-  padding: 0.45rem 0.6rem;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 4px;
-  font-size: 0.95rem;
-  background: var(--color-input-bg, #fff);
-  color: var(--color-text, #000);
-}
 input[type='radio'] {
   padding: 0;
   width: auto;
-}
-input:focus,
-select:focus {
-  outline: 2px solid var(--color-accent, #2563eb);
-  outline-offset: 1px;
 }
 .form-error {
   margin: 0;
@@ -423,26 +443,5 @@ select:focus {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 0.25rem;
-}
-.btn {
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.btn.primary {
-  background: var(--color-accent, #2563eb);
-  color: #fff;
-}
-.btn.primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-.btn.ghost {
-  background: transparent;
-  border-color: var(--color-border, #ccc);
-  color: var(--color-text, #000);
 }
 </style>

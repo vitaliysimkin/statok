@@ -208,7 +208,8 @@
     "clearFilters": "Clear Filters",
     "page": "Page",
     "of": "of",
-    "splitMultiplier": "Multiplier"
+    "splitMultiplier": "Multiplier",
+    "editTransfer": "Edit transfer"
   },
   "transactionForm": {
     "title": "New Transaction",
@@ -256,7 +257,8 @@
     "groupByMonth": "By Month",
     "groupByQuarter": "By Quarter",
     "groupByYear": "By Year",
-    "baseCurrency": "Base Currency"
+    "baseCurrency": "Base Currency",
+    "valuationIncomplete": "Valuation incomplete: FX rate missing for some entries"
   },
   "cashflow": {
     "title": "Cash Flow",
@@ -302,7 +304,9 @@
     "rebuildFrom": "From",
     "rebuildTo": "To",
     "rebuildDone": "Rebuilt {count} snapshots",
-    "noJobData": "No data on last run"
+    "noJobData": "No data on last run",
+    "syncPricesResult": "Prices: {ok} ok, {err} failed",
+    "syncFxResult": "FX rates: Frankfurter {fr}, NBU {nbu}"
   },
   "jobs": {
     "prices": "Prices",
@@ -328,6 +332,7 @@
     "NOT_FOUND": "Resource not found",
     "CONFLICT": "Conflict: {message}",
     "INTERNAL": "Internal server error. Please try again later.",
-    "UNKNOWN": "Unknown error. Please try again."
+    "UNKNOWN": "Unknown error. Please try again.",
+    "INVALID_SETTING_KEY": "Unknown settings key"
   }
 }

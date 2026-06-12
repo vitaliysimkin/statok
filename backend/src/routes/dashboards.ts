@@ -20,7 +20,7 @@ import { netWorthSnapshots, transactions, assets } from '../db/schema.ts'
 import type { AppEnv } from '../middleware/requestContext.ts'
 import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
-import { convert, FxRateNotFoundError } from '../services/fx.ts'
+import { FxRateNotFoundError, loadFxResolver, type FxResolver } from '../services/fx.ts'
 import { kyivStartInstant, kyivEndInstant } from '../services/pnl.ts'
 import type { IsoDate } from '@statok/shared'
 
@@ -137,6 +137,10 @@ dashboardsRouter.get('/cashflow', async (c) => {
     .where(and(...conditions))
     .orderBy(asc(transactions.executedAt))
 
+  // Single FX load per request — every conversion below resolves in memory (NFR-03),
+  // replacing one-SQL-per-transaction round-trips over the cashflow window.
+  const fx = await loadFxResolver()
+
   const buckets = new Map<string, CashflowBucket>()
   // True when any in-range transaction could not be converted to base (missing FX
   // rate). Such a transaction is EXCLUDED from the aggregates rather than mixed in
@@ -171,34 +175,34 @@ dashboardsRouter.get('/cashflow', async (c) => {
 
     if (row.type === 'deposit') {
       const amount = row.amountMinor ?? 0
-      const converted = await safeConvert(amount, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, amount, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.depositsMinor += converted
     } else if (row.type === 'withdraw') {
       const amount = row.amountMinor ?? 0
-      const converted = await safeConvert(amount, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, amount, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.withdrawalsMinor += converted
     } else if (row.type === 'dividend') {
       const net = row.netMinor ?? 0
-      const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, net, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.dividendsMinor += converted
     } else if (row.type === 'coupon') {
       const net = row.netMinor ?? 0
-      const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, net, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.couponsMinor += converted
     } else if (row.type === 'interest') {
       const net = row.netMinor ?? 0
-      const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, net, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.interestMinor += converted
     }
 
     // Fees from buy/sell transactions
     if ((row.type === 'buy' || row.type === 'sell') && row.feeMinor && row.feeMinor > 0) {
-      const converted = await safeConvert(row.feeMinor, sourceCcy, BASE_CURRENCY, txDate)
+      const converted = safeConvert(fx, row.feeMinor, sourceCcy, BASE_CURRENCY, txDate)
       if (converted === null) valuationIncomplete = true
       else bucket.feesMinor += converted
     }
@@ -243,10 +247,10 @@ function isoDateFromTimestamp(ts: Date | string | null | undefined): IsoDate {
  * treat null as "exclude from the aggregate and flag valuationIncomplete" — never
  * fall back to the source-currency face value (that would mix currencies, CRR-3/FR-43).
  */
-async function safeConvert(amount: number, from: string, to: string, date: IsoDate): Promise<number | null> {
+function safeConvert(fx: FxResolver, amount: number, from: string, to: string, date: IsoDate): number | null {
   if (amount === 0) return 0
   try {
-    const result = await convert(amount, from as never, to as never, date)
+    const result = fx.convert(amount, from as never, to as never, date)
     return result.amountMinor
   } catch (err) {
     if (err instanceof FxRateNotFoundError) return null

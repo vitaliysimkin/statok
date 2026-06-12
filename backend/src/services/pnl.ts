@@ -27,7 +27,7 @@ import type { CurrencyCode, IsoDate } from '@statok/shared'
 import { db } from '../db/index.ts'
 import { assets, transactions } from '../db/schema.ts'
 import { computePortfolioState } from './valuation.ts'
-import { convert, FxRateNotFoundError } from './fx.ts'
+import { FxRateNotFoundError, loadFxResolver, type FxResolver } from './fx.ts'
 
 const QTY_FACTOR = 10n ** BigInt(QTY_SCALE)
 
@@ -102,6 +102,9 @@ interface FoldPos {
 export async function computePnl(userId: string, opts: PnlOptions = {}): Promise<PnlResult> {
   const atDate = opts.atDate ?? todayInKyiv()
 
+  // Single FX load per request — all conversions below resolve in memory (NFR-03).
+  const fx = await loadFxResolver()
+
   const acc = new Map<string, PerAssetAcc>()
   let valuationIncomplete = false
 
@@ -121,7 +124,7 @@ export async function computePnl(userId: string, opts: PnlOptions = {}): Promise
   // --- realized trading + income + fees over [from, to] -------------------
   const baseCurrency = baseCcy()
   const { realizedTradingBaseMinor, dividendsBaseMinor, couponsBaseMinor, interestBaseMinor, feesBaseMinor, anyFxMissing } =
-    await foldPeriod(userId, opts, baseCurrency, getAcc)
+    await foldPeriod(userId, opts, baseCurrency, getAcc, fx)
   if (anyFxMissing) valuationIncomplete = true
 
   // --- unrealized from current state --------------------------------------
@@ -140,7 +143,7 @@ export async function computePnl(userId: string, opts: PnlOptions = {}): Promise
     const a = getAcc(pos.asset.id, pos.asset.symbol, pos.asset.currency)
     a.unrealizedMinor += pos.unrealizedMinor
     try {
-      const res = await convert(pos.unrealizedMinor, pos.asset.currency, baseCurrency, atDate)
+      const res = fx.convert(pos.unrealizedMinor, pos.asset.currency, baseCurrency, atDate)
       a.unrealizedBaseMinor += res.amountMinor
       unrealizedBaseMinor += res.amountMinor
     } catch (e) {
@@ -186,6 +189,7 @@ async function foldPeriod(
   opts: PnlOptions,
   baseCurrency: CurrencyCode,
   getAcc: (assetId: string, symbol: string, currency: CurrencyCode) => PerAssetAcc,
+  fx: FxResolver,
 ): Promise<{
   realizedTradingBaseMinor: number
   dividendsBaseMinor: number
@@ -255,7 +259,7 @@ async function foldPeriod(
         p.qty += parseQty(r.quantity)
         p.costBasisMinor += (r.amountMinor ?? 0) + r.feeMinor
         if (inPeriod(r.executedAt) && r.feeMinor !== 0) {
-          feesBaseMinor += await safeConvertAdd(r.feeMinor, ccy, baseCurrency, r.executedAt, () => { anyFxMissing = true })
+          feesBaseMinor += safeConvertAdd(fx, r.feeMinor, ccy, baseCurrency, r.executedAt, () => { anyFxMissing = true })
         }
         break
       }
@@ -273,8 +277,8 @@ async function foldPeriod(
         if (inPeriod(r.executedAt)) {
           const a = getAcc(r.assetId, r.assetSymbol, ccy)
           a.realizedMinor += realizedDelta
-          feesBaseMinor += await safeConvertAdd(fee, ccy, baseCurrency, r.executedAt, () => { anyFxMissing = true })
-          const baseDelta = await safeConvert(realizedDelta, ccy, baseCurrency, r.executedAt)
+          feesBaseMinor += safeConvertAdd(fx, fee, ccy, baseCurrency, r.executedAt, () => { anyFxMissing = true })
+          const baseDelta = safeConvert(fx, realizedDelta, ccy, baseCurrency, r.executedAt)
           if (baseDelta === null) anyFxMissing = true
           else {
             a.realizedBaseMinor += baseDelta
@@ -305,7 +309,7 @@ async function foldPeriod(
           const net = r.netMinor ?? 0
           const a = getAcc(r.assetId, r.assetSymbol, ccy)
           a.incomeMinor += net
-          const base = await safeConvert(net, ccy, baseCurrency, r.executedAt)
+          const base = safeConvert(fx, net, ccy, baseCurrency, r.executedAt)
           if (base === null) anyFxMissing = true
           else {
             a.incomeBaseMinor += base
@@ -335,15 +339,16 @@ async function foldPeriod(
 // ---------------------------------------------------------------------------
 
 /** Convert; return null (and let caller flag) when no FX path exists. */
-async function safeConvert(
+function safeConvert(
+  fx: FxResolver,
   amountMinor: number,
   from: CurrencyCode,
   to: CurrencyCode,
   at: Date,
-): Promise<number | null> {
+): number | null {
   if (amountMinor === 0) return 0
   try {
-    const res = await convert(amountMinor, from, to, kyivDateOf(at))
+    const res = fx.convert(amountMinor, from, to, kyivDateOf(at))
     return res.amountMinor
   } catch (e) {
     if (e instanceof FxRateNotFoundError) return null
@@ -352,14 +357,15 @@ async function safeConvert(
 }
 
 /** Convert-and-add helper for the fees tally (fees are positive informational sums). */
-async function safeConvertAdd(
+function safeConvertAdd(
+  fx: FxResolver,
   amountMinor: number,
   from: CurrencyCode,
   to: CurrencyCode,
   at: Date,
   onMissing: () => void,
-): Promise<number> {
-  const v = await safeConvert(amountMinor, from, to, at)
+): number {
+  const v = safeConvert(fx, amountMinor, from, to, at)
   if (v === null) { onMissing(); return 0 }
   return v
 }

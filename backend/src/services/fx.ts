@@ -108,8 +108,8 @@ async function resolveRate(from: string, to: string, date: IsoDate): Promise<Res
       return {
         num: legA.num * legB.num, // scale 8 × scale 8 ⇒ scale 16, no rounding yet
         scale: legA.scale + legB.scale,
-        // Conservative as-of: the earlier leg date — the date by which BOTH legs hold.
-        rateDate: legA.rateDate < legB.rateDate ? legA.rateDate : legB.rateDate,
+        // As-of: the LATER leg date — the date from which BOTH legs are in effect.
+        rateDate: legA.rateDate > legB.rateDate ? legA.rateDate : legB.rateDate,
       }
     }
   }
@@ -161,4 +161,131 @@ export async function convert(
   }
 
   return { amountMinor: Number(converted), rateUsed: formatRate(num, scale), rateDate }
+}
+
+// ---------------------------------------------------------------------------
+// In-memory resolver (NFR-03) — load every fx_rates row once, resolve with the
+// EXACT same semantics as the per-call `convert` above, with zero further SQL.
+//
+// The service `convert` issues 1–3 SQL round-trips per call (direct → inverse →
+// two pivot legs). Period folds (pnl.foldPeriod, dashboards-cashflow) call it
+// once per transaction → thousands of sequential round-trips over ~20k history.
+// The resolver replaces that with a single SELECT and pure in-memory lookups.
+//
+// fx_rates is tiny (single-user) so loading it whole is cheap; the in-memory
+// index mirrors the unique index `(base_ccy, quote_ccy, rate_date)`.
+// ---------------------------------------------------------------------------
+
+/** A stored fx_rates row, as needed by the resolver. */
+export interface FxRateRow {
+  rateDate: IsoDate
+  baseCcy: string
+  quoteCcy: string
+  rate: string
+}
+
+/**
+ * Resolver over a preloaded set of fx_rates rows. `convert` is identical in
+ * signature, result shape, and numeric behaviour to the service-level `convert`.
+ */
+export interface FxResolver {
+  convert(amountMinor: number, from: CurrencyCode, to: CurrencyCode, date: IsoDate): ConvertResult
+}
+
+/**
+ * Build a resolver from rows already in memory. Rows are indexed by ordered pair;
+ * each pair's rows are sorted ascending by `rate_date` so a "latest ≤ date" lookup
+ * is a single descending scan (the set is tiny — no need for binary search).
+ */
+export function createFxResolver(rows: readonly FxRateRow[]): FxResolver {
+  // pair key `base>quote` → rows sorted ascending by rateDate.
+  const byPair = new Map<string, { rateDate: IsoDate; rate: string }[]>()
+  for (const r of rows) {
+    const key = `${r.baseCcy}>${r.quoteCcy}`
+    let list = byPair.get(key)
+    if (!list) {
+      list = []
+      byPair.set(key, list)
+    }
+    list.push({ rateDate: r.rateDate, rate: r.rate })
+  }
+  for (const list of byPair.values()) {
+    list.sort((a, b) => (a.rateDate < b.rateDate ? -1 : a.rateDate > b.rateDate ? 1 : 0))
+  }
+
+  // Latest stored row for an ordered pair with `rate_date ≤ date` (mirrors fetchLatestRow).
+  const latestRow = (base: string, quote: string, date: IsoDate): { rate: string; rateDate: IsoDate } | null => {
+    const list = byPair.get(`${base}>${quote}`)
+    if (!list) return null
+    for (let i = list.length - 1; i >= 0; i--) {
+      const row = list[i]!
+      if (row.rateDate <= date) return { rate: row.rate, rateDate: row.rateDate }
+    }
+    return null
+  }
+
+  // Direct-or-inverse for an ordered pair (steps a–b), mirroring resolveDirectOrInverse.
+  const directOrInverse = (from: string, to: string, date: IsoDate): ResolvedRate | null => {
+    const direct = latestRow(from, to, date)
+    if (direct) {
+      return { num: rateToNum(direct.rate), scale: RATE_SCALE, rateDate: direct.rateDate }
+    }
+    const inverse = latestRow(to, from, date)
+    if (inverse) {
+      const invNum = rateToNum(inverse.rate)
+      return { num: divRoundHalfUp(RATE_FACTOR * RATE_FACTOR, invNum), scale: RATE_SCALE, rateDate: inverse.rateDate }
+    }
+    return null
+  }
+
+  // Full resolution with direct → inverse → USD-pivot fallback (mirrors resolveRate).
+  const resolve = (from: string, to: string, date: IsoDate): ResolvedRate => {
+    const di = directOrInverse(from, to, date)
+    if (di) return di
+
+    if (from !== PIVOT && to !== PIVOT) {
+      const legA = directOrInverse(from, PIVOT, date)
+      const legB = directOrInverse(PIVOT, to, date)
+      if (legA && legB) {
+        return {
+          num: legA.num * legB.num,
+          scale: legA.scale + legB.scale,
+          // As-of: the LATER leg date — the date from which BOTH legs are in effect.
+          rateDate: legA.rateDate > legB.rateDate ? legA.rateDate : legB.rateDate,
+        }
+      }
+    }
+
+    throw new FxRateNotFoundError(from, to, date)
+  }
+
+  return {
+    convert(amountMinor: number, from: CurrencyCode, to: CurrencyCode, date: IsoDate): ConvertResult {
+      if (from === to) {
+        return { amountMinor, rateUsed: '1.00000000', rateDate: date }
+      }
+
+      const { num, scale, rateDate } = resolve(from, to, date)
+      const converted = divRoundHalfUp(BigInt(amountMinor) * num, 10n ** BigInt(scale))
+
+      if (converted > BigInt(Number.MAX_SAFE_INTEGER) || converted < BigInt(Number.MIN_SAFE_INTEGER)) {
+        throw new RangeError(`fx.convert: result ${converted} exceeds JS safe integer range`)
+      }
+
+      return { amountMinor: Number(converted), rateUsed: formatRate(num, scale), rateDate }
+    },
+  }
+}
+
+/** Load every fx_rates row once and build an in-memory {@link FxResolver}. */
+export async function loadFxResolver(): Promise<FxResolver> {
+  const rows = await db
+    .select({
+      rateDate: fxRates.rateDate,
+      baseCcy: fxRates.baseCcy,
+      quoteCcy: fxRates.quoteCcy,
+      rate: fxRates.rate,
+    })
+    .from(fxRates)
+  return createFxResolver(rows)
 }

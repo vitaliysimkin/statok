@@ -17,18 +17,24 @@
           <div v-if="account.note" class="acc-note">{{ account.note }}</div>
         </div>
         <div class="header-actions">
-          <button class="btn-secondary" @click="openEdit">{{ t('common.edit') }}</button>
+          <TButton :label="t('common.edit')" mode="ghost" icon="system-uicons:pen" @click="openEdit" />
         </div>
       </div>
 
       <!-- Quick actions -->
       <div class="quick-actions">
-        <button class="btn-action" @click="openTxForm('deposit')">
-          + {{ t('accountDetail.addTransaction') }}
-        </button>
-        <button class="btn-action-outline" @click="openTxForm('opening_balance')">
-          {{ t('accountDetail.addOpeningBalance') }}
-        </button>
+        <TButton
+          :label="t('accountDetail.addTransaction')"
+          variant="accent"
+          icon="system-uicons:plus"
+          @click="openTxForm('deposit')"
+        />
+        <TButton
+          :label="t('accountDetail.addOpeningBalance')"
+          mode="plain"
+          variant="accent"
+          @click="openTxForm('opening_balance')"
+        />
       </div>
 
       <!-- Cash balances -->
@@ -44,7 +50,7 @@
           >
             <div class="cash-ccy">{{ b.currency }}</div>
             <div class="cash-amount">
-              <span v-if="b.balanceMinor < 0" class="warn-icon" :title="t('accounts.negativeCashWarning')">!</span>
+              <span v-if="b.balanceMinor < 0" class="warn-badge" :title="t('accounts.negativeCashWarning')">!</span>
               {{ formatMoney(b.balanceMinor, b.currency, locale) }}
             </div>
           </div>
@@ -85,11 +91,25 @@
 
           <!-- Pagination -->
           <div v-if="txTotal > txLimit" class="tx-pagination">
-            <button class="btn-page" :disabled="txOffset === 0" :aria-label="t('common.prevPage')" @click="prevPage">&#8592;</button>
+            <TButton
+              icon="system-uicons:chevron-left"
+              mode="ghost"
+              size="small"
+              :disabled="txOffset === 0"
+              :aria-label="t('common.prevPage')"
+              @click="prevPage"
+            />
             <span class="page-info" aria-live="polite">
               {{ Math.floor(txOffset / txLimit) + 1 }} / {{ Math.ceil(txTotal / txLimit) }}
             </span>
-            <button class="btn-page" :disabled="txOffset + txLimit >= txTotal" :aria-label="t('common.nextPage')" @click="nextPage">&#8594;</button>
+            <TButton
+              icon="system-uicons:chevron-right"
+              mode="ghost"
+              size="small"
+              :disabled="txOffset + txLimit >= txTotal"
+              :aria-label="t('common.nextPage')"
+              @click="nextPage"
+            />
           </div>
         </div>
       </section>
@@ -103,37 +123,39 @@
       @cancel="formVisible = false"
     />
 
-    <!-- Quick TX form (simplified: just redirect to /transactions with pre-fill via state) -->
-    <div v-if="txFormVisible" class="confirm-overlay" role="dialog" aria-modal="true" :aria-labelledby="'qtf-title'" @click.self="txFormVisible = false">
+    <!-- Quick TX form -->
+    <div v-if="txFormVisible" class="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="qtf-title" @click.self="txFormVisible = false">
       <div class="tx-quick-form">
         <h3 id="qtf-title">{{ txFormType === 'opening_balance' ? t('accountDetail.addOpeningBalance') : t('accountDetail.addTransaction') }}</h3>
         <form @submit.prevent="submitQuickTx" novalidate>
           <div class="field">
             <label for="qtf-ccy">{{ t('transactions.currency') }}</label>
-            <input
+            <TInput
               id="qtf-ccy"
+              ref="ccyInput"
               v-model="qForm.currency"
               required
               maxlength="3"
               placeholder="USD"
-              :aria-invalid="!!qFormError"
-              :aria-describedby="qFormError ? 'qtf-error' : undefined"
             />
           </div>
           <div class="field">
             <label for="qtf-amount">{{ t('common.amount') }}</label>
-            <input id="qtf-amount" v-model="qForm.amount" type="number" step="0.01" min="0" required />
+            <TInput id="qtf-amount" v-model="qForm.amount" type="number" step="0.01" min="0" required />
           </div>
           <div class="field">
             <label for="qtf-date">{{ t('common.date') }}</label>
-            <input id="qtf-date" v-model="qForm.date" type="datetime-local" required />
+            <TInput id="qtf-date" v-model="qForm.date" type="datetime-local" required />
           </div>
           <div v-if="qFormError" id="qtf-error" class="form-error" role="alert">{{ qFormError }}</div>
           <div class="form-actions">
-            <button type="button" class="btn-secondary" @click="txFormVisible = false">{{ t('common.cancel') }}</button>
-            <button type="submit" class="btn-primary" :disabled="qFormSaving">
-              {{ qFormSaving ? t('common.loading') : t('common.save') }}
-            </button>
+            <TButton type="button" :label="t('common.cancel')" mode="ghost" @click="txFormVisible = false" />
+            <TButton
+              type="submit"
+              :label="qFormSaving ? t('common.loading') : t('common.save')"
+              variant="accent"
+              :disabled="qFormSaving"
+            />
           </div>
         </form>
       </div>
@@ -142,9 +164,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, reactive, watch, nextTick } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { TButton, TInput } from '@vitaliysimkin/t-components'
 import { formatMoney, displayToMinor } from '@statok/shared'
 import { useAccounts } from '@/composables/useAccounts'
 import { usePortfolio } from '@/composables/usePortfolio'
@@ -152,6 +175,7 @@ import { useTransactions } from '@/composables/useTransactions'
 import AccountForm from '@/components/accounts/AccountForm.vue'
 import AccountPositionsTable from '@/components/accounts/AccountPositionsTable.vue'
 import { apiFetch } from '@/services/api'
+import { kindLabelKey } from '@/lib/accountKind'
 import type { AccountWithBalances } from '@statok/shared'
 
 const route = useRoute()
@@ -170,6 +194,7 @@ const txFormVisible = ref(false)
 const txFormType = ref<'deposit' | 'opening_balance'>('deposit')
 const txLimit = 20
 const txOffset = ref(0)
+const ccyInput = ref<{ inputRef?: HTMLInputElement } | null>(null)
 
 const qForm = reactive({ currency: 'USD', amount: '', date: new Date().toISOString().slice(0, 16) })
 const qFormError = ref('')
@@ -186,7 +211,26 @@ const cashBalances = computed(() => {
 })
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   await loadAll()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && txFormVisible.value) {
+    e.stopPropagation()
+    txFormVisible.value = false
+  }
+}
+
+watch(txFormVisible, async (open) => {
+  if (open) {
+    await nextTick()
+    ccyInput.value?.inputRef?.focus()
+  }
 })
 
 async function loadAll() {
@@ -215,14 +259,7 @@ async function loadTx() {
 }
 
 function kindLabel(kind: string): string {
-  const map: Record<string, string> = {
-    broker: t('accounts.kindBroker'),
-    bank: t('accounts.kindBank'),
-    wallet: t('common.unknown'),
-    exchange: t('common.unknown'),
-    other: t('accounts.kindCash'),
-  }
-  return map[kind] ?? kind
+  return t(kindLabelKey(kind))
 }
 
 function txTypeLabel(type: string): string {
@@ -301,7 +338,7 @@ async function submitQuickTx() {
 }
 
 .page-back a {
-  color: #2563eb;
+  color: var(--color-accent, #2563eb);
   text-decoration: none;
   opacity: 0.8;
 }
@@ -348,26 +385,6 @@ async function submitQuickTx() {
   margin-bottom: 1.25rem;
 }
 
-.btn-action {
-  padding: 0.45rem 1rem;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-.btn-action-outline {
-  padding: 0.45rem 1rem;
-  background: transparent;
-  border: 1px solid #2563eb;
-  color: #2563eb;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
 .section {
   margin-bottom: 2rem;
 }
@@ -395,8 +412,8 @@ async function submitQuickTx() {
 }
 
 .cash-neg {
-  border-color: #fca5a5;
-  background: #fff5f5;
+  border-color: var(--color-error, #fca5a5);
+  background: var(--color-warning-bg, #fff5f5);
 }
 
 .cash-ccy {
@@ -415,13 +432,13 @@ async function submitQuickTx() {
 }
 
 .cash-neg .cash-amount {
-  color: #dc2626;
+  color: var(--color-error, #dc2626);
 }
 
-.warn-icon {
+.warn-badge {
   font-size: 0.7rem;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-bg, #fef3c7);
+  color: var(--color-warning-text, #92400e);
   border-radius: 50%;
   width: 14px;
   height: 14px;
@@ -464,7 +481,7 @@ async function submitQuickTx() {
 
 .tx-type {
   font-weight: 500;
-  background: #f1f5f9;
+  background: var(--color-chip-bg, #f1f5f9);
   border-radius: 3px;
   padding: 1px 6px;
   font-size: 0.78rem;
@@ -505,20 +522,6 @@ async function submitQuickTx() {
   justify-content: center;
 }
 
-.btn-page {
-  padding: 0.3rem 0.75rem;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 4px;
-  background: transparent;
-  cursor: pointer;
-  color: inherit;
-}
-
-.btn-page:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
 .page-info {
   font-size: 0.85rem;
   opacity: 0.65;
@@ -539,7 +542,7 @@ async function submitQuickTx() {
 }
 
 .error {
-  color: #dc2626;
+  color: var(--color-error, #dc2626);
   opacity: 1;
 }
 
@@ -589,17 +592,8 @@ async function submitQuickTx() {
   font-weight: 500;
 }
 
-.field input {
-  padding: 0.45rem 0.625rem;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 5px;
-  font-size: 0.95rem;
-  background: var(--color-input, #fff);
-  color: inherit;
-}
-
 .form-error {
-  color: #c0392b;
+  color: var(--color-error, #c0392b);
   font-size: 0.85rem;
   margin-bottom: 0.5rem;
 }
@@ -609,31 +603,6 @@ async function submitQuickTx() {
   gap: 0.75rem;
   justify-content: flex-end;
   margin-top: 1rem;
-}
-
-.btn-primary {
-  padding: 0.45rem 1.1rem;
-  background: #2563eb;
-  color: #fff;
-  border: none;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-}
-
-.btn-primary:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.btn-secondary {
-  padding: 0.45rem 1rem;
-  background: transparent;
-  border: 1px solid var(--color-border, #ccc);
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  color: inherit;
 }
 
 /* Responsive */

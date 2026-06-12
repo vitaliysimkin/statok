@@ -7,7 +7,13 @@
       <RouterLink to="/assets">{{ t('nav.assets') }}</RouterLink>
       <RouterLink to="/settings">{{ t('nav.settings') }}</RouterLink>
       <ThemeLocaleSwitcher class="nav-switcher" />
-      <button class="nav-logout" @click="logout">{{ t('nav.logout') }}</button>
+      <TButton
+        class="nav-logout"
+        mode="ghost"
+        size="small"
+        :label="t('nav.logout')"
+        @click="logout"
+      />
     </nav>
     <main class="app-main">
       <RouterView />
@@ -16,14 +22,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { TButton } from '@vitaliysimkin/t-components'
 import ThemeLocaleSwitcher from '@/components/ThemeLocaleSwitcher.vue'
+import { useAuth } from '@/composables/useAuth'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const { refresh } = useAuth()
 
 const showNav = computed(() => route.meta.public !== true)
 
@@ -31,6 +40,12 @@ function logout() {
   localStorage.removeItem('statok_token')
   router.push('/login')
 }
+
+onMounted(() => {
+  if (localStorage.getItem('statok_token')) {
+    refresh().catch(() => {})
+  }
+})
 </script>
 
 <style>
@@ -56,30 +71,24 @@ body {
   flex-wrap: wrap;
   gap: 0.5rem;
   padding: 0.75rem 1rem;
-  background: #1a1a2e;
+  background: var(--color-nav-bg);
   align-items: center;
 }
 
 .app-nav a {
-  color: #ccc;
+  color: var(--color-nav-text);
   text-decoration: none;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
 }
 
 .app-nav a.router-link-active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.15);
+  color: var(--color-nav-active);
+  background: var(--color-surface-hover);
 }
 
 .nav-logout {
   margin-left: auto;
-  background: transparent;
-  border: 1px solid #666;
-  color: #ccc;
-  cursor: pointer;
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
 }
 
 .app-main {

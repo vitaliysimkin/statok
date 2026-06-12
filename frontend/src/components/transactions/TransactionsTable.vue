@@ -34,12 +34,23 @@
             {{ amountDisplay(row) }}
           </td>
           <td class="actions" :data-label="t('common.actions')">
-            <button type="button" class="link-btn" @click="emit('edit', row)">
-              {{ t('common.edit') }}
-            </button>
-            <button type="button" class="link-btn danger" @click="emit('delete', row)">
-              {{ t('common.delete') }}
-            </button>
+            <TButton
+              mode="text"
+              size="mini"
+              icon="system-uicons:pen"
+              :label="t('common.edit')"
+              :aria-label="t('common.edit')"
+              @click="emit('edit', row)"
+            />
+            <TButton
+              mode="text"
+              size="mini"
+              variant="danger"
+              icon="system-uicons:trash"
+              :label="t('common.delete')"
+              :aria-label="t('common.delete')"
+              @click="emit('delete', row)"
+            />
           </td>
         </tr>
         <tr v-if="items.length === 0">
@@ -52,6 +63,7 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { TButton } from '@vitaliysimkin/t-components'
 import { formatMoney } from '@statok/shared'
 import type { TransactionListItem } from '@statok/shared'
 
@@ -132,17 +144,8 @@ function amountDisplay(row: TransactionListItem): string {
 }
 .actions {
   white-space: nowrap;
-}
-.link-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 0.15rem 0.35rem;
-  color: var(--color-accent, #2563eb);
-  font-size: 0.85rem;
-}
-.link-btn.danger {
-  color: var(--color-error, #dc2626);
+  display: flex;
+  gap: 0.25rem;
 }
 .empty-row {
   text-align: center;

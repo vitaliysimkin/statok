@@ -84,7 +84,7 @@ onMounted(() => {
   ro = new ResizeObserver(resize)
   if (el.value) ro.observe(el.value)
   themeObserver = new MutationObserver(buildChart)
-  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] })
+  themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 
 onBeforeUnmount(() => {
