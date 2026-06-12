@@ -23,6 +23,11 @@ export const pricesRouter = new Hono<AppEnv>()
 
 pricesRouter.use('*', authMiddleware)
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Positive decimal, up to 8 decimal places, no leading zeros (except "0.xxx")
+const DECIMAL_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/
+
 // ---------------------------------------------------------------------------
 // GET /api/prices?assetId=&from=&to=
 // Returns price history for an asset over a date range, including source.
@@ -33,6 +38,13 @@ pricesRouter.get('/', async (c) => {
 
   if (!assetId) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'assetId is required' }, 400)
+  }
+
+  if (from && !ISO_DATE.test(from)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'from must be YYYY-MM-DD' }, 400)
+  }
+  if (to && !ISO_DATE.test(to)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'to must be YYYY-MM-DD' }, 400)
   }
 
   // Verify asset belongs to user
@@ -70,14 +82,18 @@ pricesRouter.get('/', async (c) => {
 
 // ---------------------------------------------------------------------------
 // PUT /api/prices/:assetId/:date  { price }
-// Upsert a manual price. Bond clean price per paper. Negative/zero → 400.
+// Upsert a manual price. Bond clean price per paper. Zero/negative → 400.
 // ---------------------------------------------------------------------------
 pricesRouter.put('/:assetId/:date', async (c) => {
   const userId = getUserId(c)
   const { assetId, date } = c.req.param()
 
+  if (!UUID_RE.test(assetId)) {
+    return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
+  }
+
   // Validate date format
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (!ISO_DATE.test(date)) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'date must be YYYY-MM-DD' }, 400)
   }
 
@@ -86,13 +102,22 @@ pricesRouter.put('/:assetId/:date', async (c) => {
     return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400)
   }
 
-  const price = body.price
-  if (price === undefined || price === null) {
+  const priceRaw = body.price
+  if (priceRaw === undefined || priceRaw === null) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'price is required' }, 400)
   }
-  const priceNum = Number(price)
-  if (!isFinite(priceNum) || priceNum < 0) {
-    return c.json({ error: 'VALIDATION_ERROR', message: 'price must be a non-negative number' }, 400)
+
+  // Accept number or string; coerce to string for regex validation
+  const priceStr = String(priceRaw)
+  if (!DECIMAL_RE.test(priceStr)) {
+    return c.json(
+      { error: 'VALIDATION_ERROR', message: 'price must be a positive decimal with up to 8 decimal places' },
+      400,
+    )
+  }
+  // Zero is not allowed (must be > 0)
+  if (parseFloat(priceStr) <= 0) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'price must be greater than zero' }, 400)
   }
 
   // Verify asset belongs to user
@@ -111,14 +136,14 @@ pricesRouter.put('/:assetId/:date', async (c) => {
     .values({
       assetId,
       quoteDate: date,
-      price: String(priceNum),
+      price: priceStr,
       currency: asset.currency,
       source: 'manual',
     })
     .onConflictDoUpdate({
       target: [priceQuotes.assetId, priceQuotes.quoteDate],
       set: {
-        price: String(priceNum),
+        price: priceStr,
         source: 'manual',
         updatedAt: new Date(),
       },
@@ -139,6 +164,10 @@ pricesRouter.put('/:assetId/:date', async (c) => {
 pricesRouter.delete('/:assetId/:date', async (c) => {
   const userId = getUserId(c)
   const { assetId, date } = c.req.param()
+
+  if (!UUID_RE.test(assetId)) {
+    return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
+  }
 
   // Verify asset belongs to user
   const [asset] = await db

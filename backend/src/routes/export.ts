@@ -18,7 +18,9 @@ import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
 import { computePortfolioState } from '../services/valuation.ts'
 import { convert, FxRateNotFoundError } from '../services/fx.ts'
+import { kyivStartInstant, kyivEndInstant } from '../services/pnl.ts'
 import { buildCsv } from '../lib/csv.ts'
+import { minorToDisplay, divRoundHalfUp } from '@statok/shared'
 import type { IsoDate } from '@statok/shared'
 
 const BASE_CURRENCY = (process.env['BASE_CURRENCY'] ?? 'USD') as string
@@ -32,10 +34,28 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Convert minor units to major units string (2 decimal places). */
-function toMajor(minor: number | null | undefined): string {
+/**
+ * Minor units → major-unit decimal string for the given currency, via the shared
+ * fixed-point helper (no float, honours per-currency MINOR_DIGITS). Empty for null.
+ */
+function toMajor(minor: number | null | undefined, ccy: string): string {
   if (minor === null || minor === undefined) return ''
-  return (minor / 100).toFixed(2)
+  return minorToDisplay(minor, ccy)
+}
+
+/**
+ * unrealized / costBasis as a fixed-point ratio string (8 dp, trailing zeros
+ * trimmed), mirroring portfolio.ts. Empty when costBasis ≤ 0 or unrealized absent.
+ */
+function unrealizedPctCsv(unrealizedMinor: number | null, costBasisMinor: number): string {
+  if (unrealizedMinor === null || costBasisMinor <= 0) return ''
+  const scaled = divRoundHalfUp(BigInt(unrealizedMinor) * 100_000_000n, BigInt(costBasisMinor))
+  const neg = scaled < 0n
+  const abs = neg ? -scaled : scaled
+  const int = abs / 100_000_000n
+  const frac = (abs % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '')
+  const body = frac.length > 0 ? `${int}.${frac}` : `${int}`
+  return neg ? `-${body}` : body
 }
 
 function todayKyiv(): string {
@@ -81,10 +101,12 @@ exportRouter.get('/transactions.csv', async (c) => {
     return c.json({ error: 'VALIDATION_ERROR', message: 'to must be YYYY-MM-DD' }, 400)
   }
 
+  // Range bounds aligned to Europe/Kyiv day boundaries (matches the business-date /
+  // export convention), so txns near Kyiv midnight fall inside the right window.
   const conditions = [
     eq(transactions.userId, userId),
-    fromParam ? gte(transactions.executedAt, new Date(fromParam + 'T00:00:00Z')) : undefined,
-    toParam ? lte(transactions.executedAt, new Date(toParam + 'T23:59:59.999Z')) : undefined,
+    fromParam ? gte(transactions.executedAt, kyivStartInstant(fromParam as IsoDate)) : undefined,
+    toParam ? lte(transactions.executedAt, kyivEndInstant(toParam as IsoDate)) : undefined,
     accountIdParam ? eq(transactions.accountId, accountIdParam) : undefined,
   ].filter(Boolean) as Parameters<typeof and>
 
@@ -123,11 +145,11 @@ exportRouter.get('/transactions.csv', async (c) => {
     r.quantity ?? '',
     r.price ?? '',
     r.currency,
-    toMajor(r.amountMinor),
-    toMajor(r.feeMinor),
-    toMajor(r.grossMinor),
-    toMajor(r.withholdingTaxMinor),
-    toMajor(r.netMinor),
+    toMajor(r.amountMinor, r.currency),
+    toMajor(r.feeMinor, r.currency),
+    toMajor(r.grossMinor, r.currency),
+    toMajor(r.withholdingTaxMinor, r.currency),
+    toMajor(r.netMinor, r.currency),
     r.transferGroupId ?? '',
     r.note,
   ])
@@ -182,21 +204,18 @@ exportRouter.get('/positions.csv', async (c) => {
     if (pos.valueMinor !== null) {
       try {
         const res = await convert(pos.valueMinor, currency as never, BASE_CURRENCY as never, asOf)
-        valueBase = toMajor(res.amountMinor)
+        valueBase = toMajor(res.amountMinor, BASE_CURRENCY)
         if (pos.unrealizedMinor !== null) {
           const ur = await convert(pos.unrealizedMinor, currency as never, BASE_CURRENCY as never, asOf)
-          unrealizedBase = toMajor(ur.amountMinor)
+          unrealizedBase = toMajor(ur.amountMinor, BASE_CURRENCY)
         }
       } catch (err) {
         if (!(err instanceof FxRateNotFoundError)) throw err
       }
     }
 
-    // unrealizedPct = unrealized / costBasis
-    let unrealizedPct = ''
-    if (pos.unrealizedMinor !== null && pos.costBasisMinor !== 0) {
-      unrealizedPct = (pos.unrealizedMinor / pos.costBasisMinor).toFixed(4)
-    }
+    // unrealizedPct = unrealized / costBasis (fixed-point; empty for non-positive basis)
+    const unrealizedPct = unrealizedPctCsv(pos.unrealizedMinor, pos.costBasisMinor)
 
     const accountName = accountMap.get(pos.accountId) ?? pos.accountId
 
@@ -206,13 +225,13 @@ exportRouter.get('/positions.csv', async (c) => {
       pos.asset.type,
       currency,
       pos.quantity,       // already a display string from valuation
-      toMajor(pos.avgCostMinor),
-      toMajor(pos.costBasisMinor),
+      toMajor(pos.avgCostMinor, currency),
+      toMajor(pos.costBasisMinor, currency),
       pos.lastPrice ?? '',
       pos.priceDate ?? '',
-      toMajor(pos.valueMinor),
+      toMajor(pos.valueMinor, currency),
       valueBase,
-      toMajor(pos.unrealizedMinor),
+      toMajor(pos.unrealizedMinor, currency),
       unrealizedPct,
     ])
   }

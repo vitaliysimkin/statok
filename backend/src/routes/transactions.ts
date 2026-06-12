@@ -22,7 +22,7 @@
 
 import { Hono } from 'hono'
 import type { Context } from 'hono'
-import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lt, lte, sql } from 'drizzle-orm'
 
 import { isTransactionType, mulToMinor } from '@statok/shared'
 import type { AssetType, TransactionType } from '@statok/shared'
@@ -32,7 +32,7 @@ import { accounts, assets, transactions } from '../db/schema.ts'
 import type { AppEnv } from '../middleware/requestContext.ts'
 import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
-import { computePortfolioState } from '../services/valuation.ts'
+import { computePortfolioState, kyivDateExclusiveUpperBound } from '../services/valuation.ts'
 import { ensureCashAsset, isIso4217 } from '../services/cashAssets.ts'
 
 export const transactionsRouter = new Hono<AppEnv>()
@@ -42,6 +42,17 @@ transactionsRouter.use('*', authMiddleware)
 const INCOME_TYPES = new Set<TransactionType>(['dividend', 'coupon', 'interest'])
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT = 500
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// UUID guard — invalid :id → 404 before hitting Postgres. Scoped to the
+// id-bearing methods so the literal POST /transfer and /ticker-change paths
+// (which are not :id routes) are never matched.
+transactionsRouter.on(['GET', 'PUT', 'DELETE'], '/:id', async (c, next) => {
+  if (!UUID_RE.test(c.req.param('id'))) {
+    return c.json({ error: 'NOT_FOUND', message: 'Transaction not found' }, 404)
+  }
+  return next()
+})
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -134,7 +145,10 @@ async function assertAccountOwned(userId: string, accountId: unknown): Promise<s
  * is responsible for reverting the offending write before this propagates.
  */
 async function assertQuantityInvariant(userId: string, accountId: string, assetId: string): Promise<void> {
-  const state = await computePortfolioState(userId, { accountId })
+  // fullTimeline replays future-dated rows too, so an oversell/edit/delete with
+  // a future executedAt is still detected (FR-15a) — the default atDate cutoff
+  // would skip those rows and miss the negative point.
+  const state = await computePortfolioState(userId, { accountId, fullTimeline: true })
   const conflict = state.conflicts.find((c) => c.assetId === assetId)
   if (conflict) {
     throw new HttpError(
@@ -483,8 +497,8 @@ transactionsRouter.get('/', async (c) => {
   }
   const from = parseDateFilter(fromParam, 'from')
   if (from instanceof Response) return from
-  const to = parseDateFilter(toParam, 'to')
-  if (to instanceof Response) return to
+  const toCondition = parseToCondition(toParam)
+  if (toCondition instanceof Response) return toCondition
 
   let limit = DEFAULT_LIMIT
   if (c.req.query('limit') != null) {
@@ -505,7 +519,7 @@ transactionsRouter.get('/', async (c) => {
     assetId ? eq(transactions.assetId, assetId) : undefined,
     typeParam ? eq(transactions.type, typeParam as TransactionType) : undefined,
     from ? gte(transactions.executedAt, from) : undefined,
-    to ? lte(transactions.executedAt, to) : undefined,
+    toCondition,
   ].filter(Boolean) as Parameters<typeof and>
 
   const whereClause = and(...conditions)
@@ -575,6 +589,28 @@ function parseDateFilter(v: string | undefined, field: 'from' | 'to'): Date | un
     })
   }
   return d
+}
+
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Build the `to` upper-bound condition. A pure `YYYY-MM-DD` is treated as the
+ * whole Kyiv business day: exclusive bound at next-day midnight Kyiv via `lt`
+ * (so `to=today` includes today's intraday rows, not just T00:00Z). A full ISO
+ * timestamp keeps inclusive `lte` semantics.
+ */
+function parseToCondition(v: string | undefined): ReturnType<typeof lt> | undefined | Response {
+  if (v == null || v === '') return undefined
+  if (DATE_ONLY_RE.test(v)) {
+    return lt(transactions.executedAt, kyivDateExclusiveUpperBound(v))
+  }
+  const d = new Date(v)
+  if (Number.isNaN(d.getTime())) {
+    return new Response(JSON.stringify({ error: 'VALIDATION_ERROR', message: 'to is not a valid date' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' },
+    })
+  }
+  return lte(transactions.executedAt, d)
 }
 
 // ---------------------------------------------------------------------------
@@ -686,12 +722,28 @@ async function buildUpdate(
       break
     }
     case 'deposit':
-    case 'withdraw':
+    case 'withdraw': {
+      if ('amountMinor' in b) {
+        if (!isNonNegInt(b['amountMinor']) || b['amountMinor'] <= 0) throw new HttpError(400, 'VALIDATION_ERROR', 'amountMinor must be a positive integer')
+        u.amountMinor = b['amountMinor']
+      }
+      break
+    }
     case 'transfer_in':
     case 'transfer_out': {
       if ('amountMinor' in b) {
         if (!isNonNegInt(b['amountMinor']) || b['amountMinor'] <= 0) throw new HttpError(400, 'VALIDATION_ERROR', 'amountMinor must be a positive integer')
         u.amountMinor = b['amountMinor']
+      }
+      // Amount/currency are per-leg (FR-17). Changing currency re-points this leg
+      // to the cash asset of the new currency; executedAt/note still sync to both.
+      if ('currency' in b) {
+        const currency = normalizeCurrency(b['currency'])
+        if (currency !== row.currency) {
+          const cashAsset = await ensureCashAsset(userId, currency)
+          u.currency = currency
+          u.assetId = cashAsset.id
+        }
       }
       break
     }
@@ -727,7 +779,6 @@ async function buildUpdate(
       // Only executedAt/note/meta are mutable; symbol stays (rollback on delete).
       break
   }
-  void userId
   return u
 }
 

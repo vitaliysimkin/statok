@@ -68,7 +68,9 @@
     "kindBroker": "Брокерський",
     "kindBank": "Банківський",
     "kindCash": "Готівка",
-    "kindDeposit": "Депозит",
+    "kindExchange": "Біржа",
+    "kindWallet": "Гаманець",
+    "kindOther": "Інше",
     "note": "Примітка",
     "balance": "Баланс",
     "netWorth": "Загальна вартість",
@@ -125,6 +127,8 @@
     "priceSourceManual": "Вручну",
     "noAssets": "Активи ще не додані",
     "includeArchived": "Показати архівні",
+    "archived": "Архівовано",
+    "priceHistory": "Історія цін",
     "deleteConfirm": "Видалити актив «{symbol}»?",
     "archiveConfirm": "Архівувати актив «{symbol}»?",
     "tickerChange": "Змінити тікер",
@@ -323,6 +327,7 @@
     "RATE_LIMITED": "Забагато спроб. Зачекайте перед наступною спробою.",
     "NOT_FOUND": "Ресурс не знайдено",
     "CONFLICT": "Конфлікт: {message}",
+    "INTERNAL": "Внутрішня помилка сервера. Спробуйте пізніше.",
     "UNKNOWN": "Невідома помилка. Спробуйте ще раз."
   }
 }

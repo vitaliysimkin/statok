@@ -21,6 +21,7 @@ import type { AppEnv } from '../middleware/requestContext.ts'
 import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
 import { convert, FxRateNotFoundError } from '../services/fx.ts'
+import { kyivStartInstant, kyivEndInstant } from '../services/pnl.ts'
 import type { IsoDate } from '@statok/shared'
 
 const BASE_CURRENCY = (process.env['BASE_CURRENCY'] ?? 'USD') as string
@@ -111,10 +112,13 @@ dashboardsRouter.get('/cashflow', async (c) => {
   const relevantTypes = ['deposit', 'withdraw', 'dividend', 'coupon', 'interest', 'buy', 'sell'] as const
   // For fees we need buy/sell feeMinor; for income types we use netMinor.
 
+  // Range bounds are aligned to Europe/Kyiv day boundaries (same convention as the
+  // period bucketing / business date), so transactions near Kyiv midnight land in the
+  // correct period and inside the selection window — not shifted by the UTC offset.
   const conditions = [
     eq(transactions.userId, userId),
-    fromParam ? gte(transactions.executedAt, new Date(fromParam + 'T00:00:00Z')) : undefined,
-    toParam ? lte(transactions.executedAt, new Date(toParam + 'T23:59:59.999Z')) : undefined,
+    fromParam ? gte(transactions.executedAt, kyivStartInstant(fromParam as IsoDate)) : undefined,
+    toParam ? lte(transactions.executedAt, kyivEndInstant(toParam as IsoDate)) : undefined,
   ].filter(Boolean) as Parameters<typeof and>
 
   const rows = await db
@@ -134,6 +138,10 @@ dashboardsRouter.get('/cashflow', async (c) => {
     .orderBy(asc(transactions.executedAt))
 
   const buckets = new Map<string, CashflowBucket>()
+  // True when any in-range transaction could not be converted to base (missing FX
+  // rate). Such a transaction is EXCLUDED from the aggregates rather than mixed in
+  // at its source-currency face value (which would corrupt the base totals).
+  let valuationIncomplete = false
 
   const getBucket = (key: string): CashflowBucket => {
     if (!buckets.has(key)) {
@@ -164,29 +172,35 @@ dashboardsRouter.get('/cashflow', async (c) => {
     if (row.type === 'deposit') {
       const amount = row.amountMinor ?? 0
       const converted = await safeConvert(amount, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.depositsMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.depositsMinor += converted
     } else if (row.type === 'withdraw') {
       const amount = row.amountMinor ?? 0
       const converted = await safeConvert(amount, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.withdrawalsMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.withdrawalsMinor += converted
     } else if (row.type === 'dividend') {
       const net = row.netMinor ?? 0
       const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.dividendsMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.dividendsMinor += converted
     } else if (row.type === 'coupon') {
       const net = row.netMinor ?? 0
       const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.couponsMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.couponsMinor += converted
     } else if (row.type === 'interest') {
       const net = row.netMinor ?? 0
       const converted = await safeConvert(net, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.interestMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.interestMinor += converted
     }
 
     // Fees from buy/sell transactions
     if ((row.type === 'buy' || row.type === 'sell') && row.feeMinor && row.feeMinor > 0) {
       const converted = await safeConvert(row.feeMinor, sourceCcy, BASE_CURRENCY, txDate)
-      bucket.feesMinor += converted
+      if (converted === null) valuationIncomplete = true
+      else bucket.feesMinor += converted
     }
   }
 
@@ -206,7 +220,7 @@ dashboardsRouter.get('/cashflow', async (c) => {
     }
   })
 
-  return c.json({ periods, baseCurrency: BASE_CURRENCY })
+  return c.json({ periods, baseCurrency: BASE_CURRENCY, valuationIncomplete })
 })
 
 // ---------------------------------------------------------------------------
@@ -224,13 +238,18 @@ function isoDateFromTimestamp(ts: Date | string | null | undefined): IsoDate {
   }).format(d) as IsoDate
 }
 
-/** Convert with FX; if rate is missing, return the original amount (best-effort). */
-async function safeConvert(amount: number, from: string, to: string, date: IsoDate): Promise<number> {
+/**
+ * Convert with FX; return null when no rate path exists for the date. Callers must
+ * treat null as "exclude from the aggregate and flag valuationIncomplete" — never
+ * fall back to the source-currency face value (that would mix currencies, CRR-3/FR-43).
+ */
+async function safeConvert(amount: number, from: string, to: string, date: IsoDate): Promise<number | null> {
+  if (amount === 0) return 0
   try {
     const result = await convert(amount, from as never, to as never, date)
     return result.amountMinor
   } catch (err) {
-    if (err instanceof FxRateNotFoundError) return amount
+    if (err instanceof FxRateNotFoundError) return null
     throw err
   }
 }

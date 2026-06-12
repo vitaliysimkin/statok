@@ -42,7 +42,7 @@
         <dd>{{ metrics.currentYieldPercent.toFixed(4) }}%</dd>
 
         <dt>{{ t('bond.priceUsed') }}</dt>
-        <dd>{{ metrics.priceUsed }}</dd>
+        <dd>{{ formatMoney(displayToMinor(metrics.priceUsed, currency), currency, locale) }}</dd>
 
         <dt>{{ t('bond.priceBasis') }}</dt>
         <dd>{{ metrics.priceBasis }}</dd>
@@ -92,7 +92,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { TTag } from '@vitaliysimkin/t-components'
-import { formatMoney } from '@statok/shared'
+import { displayToMinor, formatMoney } from '@statok/shared'
 import type { BondDetails, BondSchedule, BondMetrics } from '@statok/shared'
 import { useAssets } from '@/composables/useAssets'
 

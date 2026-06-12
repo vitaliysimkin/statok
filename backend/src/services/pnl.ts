@@ -404,14 +404,14 @@ function kyivDateOf(at: Date): IsoDate {
 }
 
 /** UTC instant of 00:00 Kyiv on `isoDate` (inclusive period start). */
-function kyivStartInstant(isoDate: IsoDate): Date {
+export function kyivStartInstant(isoDate: IsoDate): Date {
   const { y, mo, d } = parseIso(isoDate)
   const utcMidnight = Date.UTC(y, mo - 1, d, 0, 0, 0)
   return new Date(utcMidnight - kyivOffsetMsAt(new Date(utcMidnight)))
 }
 
 /** UTC instant just before 00:00 Kyiv on (isoDate + 1) — inclusive period end. */
-function kyivEndInstant(isoDate: IsoDate): Date {
+export function kyivEndInstant(isoDate: IsoDate): Date {
   const { y, mo, d } = parseIso(isoDate)
   const nextUtcMidnight = Date.UTC(y, mo - 1, d + 1, 0, 0, 0)
   const start = new Date(nextUtcMidnight - kyivOffsetMsAt(new Date(nextUtcMidnight)))

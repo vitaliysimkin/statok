@@ -1,8 +1,11 @@
-/* Global theme tokens. useTheme.ts sets data-theme="light"|"dark" on <html>.
-   Components reference --color-* (app) and --t-* (t-components kit) custom properties. */
+/* Global app theme tokens. Theme is driven by @vitaliysimkin/t-components:
+   applyTheme() toggles the .light / .dark class on <html> (see useTheme.ts).
+   Light tokens live on :root + html.light, dark tokens on html.dark, so app
+   --color-* values track the same class the kit toggles. Kit tokens (--t-color-*,
+   --t-oc-*) are defined by the kit's style.css; we don't redefine them here. */
 
 :root,
-:root[data-theme='light'] {
+html.light {
   --color-bg: #f7f8fa;
   --color-surface: #ffffff;
   --color-surface-hover: #f3f4f6;
@@ -10,24 +13,43 @@
   --color-border: #e2e5e9;
   --color-text: #1a1d21;
   --color-text-secondary: #4b5563;
-  --color-text-muted: #9ca3af;
+  /* muted: ≥4.5:1 on white/bg (was #9ca3af ≈2.5:1 — failed NFR-06) */
+  --color-text-muted: #6b7280;
   --color-accent: #2563eb;
+  /* text drawn on accent fills (white on #2563eb ≈5.2:1) */
+  --color-on-accent: #ffffff;
   --color-success: #16a34a;
   --color-error: #dc2626;
   --color-input: #1a1d21;
   --color-input-bg: #ffffff;
 
-  /* @vitaliysimkin/t-components tokens */
-  --t-bg: #f7f8fa;
-  --t-bg-subtle: #eef2f7;
-  --t-surface: #ffffff;
-  --t-border: #e2e5e9;
-  --t-accent: #2563eb;
-  --t-danger: #dc2626;
-  --t-hover: #f3f4f6;
+  /* Navigation surface (wave 2 will adopt these) */
+  --color-nav-bg: #ffffff;
+  --color-nav-text: #4b5563;
+  --color-nav-active: #2563eb;
+
+  /* Warning / notice surface */
+  --color-warning-bg: #fef3c7;
+  --color-warning-text: #92400e;
+
+  /* Bare --t-x below are an APP namespace, separate from the kit tokens
+     --t-color-x and --t-oc-x. The Assets route reads them via CSS fallback
+     var(--t-surface, light-hex) in AssetsPage, AssetForm, PriceHistory and
+     BondPanel. Aliased to --color-x so they track the theme class instead of
+     collapsing to their light hardcoded fallbacks in dark mode. Wave 2 migrates
+     those pages to --color-x and then this block can go.
+     light values: bg f7f8fa, bg-subtle eef2f7, surface fff, border e2e5e9,
+     accent 2563eb, hover f3f4f6, danger dc2626. */
+  --t-bg: var(--color-bg);
+  --t-bg-subtle: var(--color-chip-bg);
+  --t-surface: var(--color-surface);
+  --t-border: var(--color-border);
+  --t-accent: var(--color-accent);
+  --t-hover: var(--color-surface-hover);
+  --t-danger: var(--color-error);
 }
 
-:root[data-theme='dark'] {
+html.dark {
   --color-bg: #111418;
   --color-surface: #1b1f24;
   --color-surface-hover: #242a31;
@@ -35,20 +57,22 @@
   --color-border: #2e353d;
   --color-text: #e6e9ed;
   --color-text-secondary: #aab2bd;
-  --color-text-muted: #6b7280;
+  /* muted: ≥4.5:1 on dark surface (was #6b7280 ≈3.4:1 — failed NFR-06) */
+  --color-text-muted: #9aa3af;
   --color-accent: #60a5fa;
+  /* dark accent is light, so accent fills need dark text (≈7.4:1, not white ≈1.9:1) */
+  --color-on-accent: #0b1220;
   --color-success: #4ade80;
   --color-error: #f87171;
   --color-input: #e6e9ed;
   --color-input-bg: #14171b;
 
-  --t-bg: #111418;
-  --t-bg-subtle: #1b1f24;
-  --t-surface: #1b1f24;
-  --t-border: #2e353d;
-  --t-accent: #60a5fa;
-  --t-danger: #f87171;
-  --t-hover: #242a31;
+  --color-nav-bg: #1b1f24;
+  --color-nav-text: #aab2bd;
+  --color-nav-active: #60a5fa;
+
+  --color-warning-bg: #3a2f12;
+  --color-warning-text: #fde68a;
 }
 
 html,

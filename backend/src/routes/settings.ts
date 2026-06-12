@@ -9,13 +9,13 @@
  */
 
 import { Hono } from 'hono'
-import { eq } from 'drizzle-orm'
 
 import { db } from '../db/index.ts'
 import { appSettings } from '../db/schema.ts'
 import type { AppEnv } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
 import { APP_VERSION } from '../lib/version.ts'
+import { readJobState } from '../jobs/jobState.ts'
 
 const BASE_CURRENCY = process.env['BASE_CURRENCY'] ?? 'USD'
 
@@ -32,27 +32,16 @@ const WRITABLE_KEYS = new Set([
 // GET /api/settings
 // ---------------------------------------------------------------------------
 settingsRouter.get('/', async (c) => {
-  const rows = await db
-    .select({ key: appSettings.key, value: appSettings.value })
-    .from(appSettings)
-
-  const kvMap = new Map(rows.map((r) => [r.key, r.value]))
-
-  const readJobState = (prefix: string) => ({
-    lastRunAt: (kvMap.get(`${prefix}.lastRunAt`) as string | undefined) ?? null,
-    lastSuccessAt: (kvMap.get(`${prefix}.lastSuccessAt`) as string | undefined) ?? null,
-    lastStatus: (kvMap.get(`${prefix}.lastStatus`) as string | undefined) ?? null,
-    lastError: (kvMap.get(`${prefix}.lastError`) as string | undefined) ?? null,
-  })
+  const [prices, fx, snapshot] = await Promise.all([
+    readJobState('job.prices'),
+    readJobState('job.fx'),
+    readJobState('job.snapshot'),
+  ])
 
   return c.json({
     baseCurrency: BASE_CURRENCY,
     version: APP_VERSION,
-    jobs: {
-      prices: readJobState('job.prices'),
-      fx: readJobState('job.fx'),
-      snapshot: readJobState('eod'),
-    },
+    jobs: { prices, fx, snapshot },
   })
 })
 

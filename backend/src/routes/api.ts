@@ -28,5 +28,3 @@ apiRouter.route('/dashboards', dashboardsRouter)
 apiRouter.route('/export', exportRouter)
 apiRouter.route('/backup', backupRouter)
 apiRouter.route('/settings', settingsRouter)
-
-apiRouter.get('/', (c) => c.json({ message: 'Statok API' }))

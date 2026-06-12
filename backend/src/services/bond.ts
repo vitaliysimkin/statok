@@ -8,13 +8,14 @@
  *   - processMaturedBonds(today): idempotent auto-redemption (a `sell` at par on
  *     the maturity date), reusing the deterministic fold for the held quantity.
  *
- * Money stays in integer minor units; the only rounding on the money path is
- * roundHalfUp at the numeric→minor boundary. Yields use double precision per spec.
+ * Money stays in integer minor units; coupon amounts cross the numeric→minor
+ * boundary via bigint fixed-point (half-up), never float. The yield solvers
+ * themselves run in double precision per spec (display metrics, not stored money).
  */
 
 import { and, desc, eq, lte } from 'drizzle-orm'
 
-import { roundHalfUp } from '@statok/shared'
+import { divRoundHalfUp, minorToDisplay, parseDec, RATE_SCALE, roundHalfUp } from '@statok/shared'
 
 import { db } from '../db/index.ts'
 import { assets, bondDetails, priceQuotes, transactions } from '../db/schema.ts'
@@ -92,7 +93,7 @@ export function couponSchedule(bond: BondInput, opts: ScheduleOptions = {}): Sch
 
   if (freq > 0 && rate > 0) {
     const stepMonths = 12 / freq
-    const couponMinor = roundHalfUp((bond.faceValueMinor * rate) / 100 / freq)
+    const couponMinor = couponAmountMinor(bond.faceValueMinor, bond.couponRatePercent, freq)
     // Walk backwards from maturity; the maturity-dated coupon is folded into the
     // redemption row (a single combined final row would double-count), so coupon
     // rows are strictly the payments BEFORE maturity.
@@ -131,7 +132,9 @@ export function currentYield(bond: BondInput, cleanPriceMinor: number): number {
   const rate = Number(bond.couponRatePercent)
   if (bond.couponFrequency === 0 || rate === 0) return 0
   if (cleanPriceMinor <= 0) return 0
-  const annualCouponMinor = (bond.faceValueMinor * rate) / 100
+  // Annual coupon in exact minor units (bigint, half-up at the numeric→minor boundary);
+  // the final fraction is float — a display metric, not a stored money value.
+  const annualCouponMinor = couponAmountMinor(bond.faceValueMinor, bond.couponRatePercent, 1)
   return annualCouponMinor / cleanPriceMinor
 }
 
@@ -223,15 +226,30 @@ function bisectYtm(priceAt: (y: number) => number): number {
   return (lo + hi) / 2
 }
 
-/** Future (years > 0) coupon + redemption cash flows from settlementDate, ACT/365F. */
+/**
+ * Future (years > 0) cash flows from settlementDate, ACT/365F, for the YTM price
+ * equation P = Σ C/(1+y/f)^(f·t_i) + F/(1+y/f)^(f·t_n).
+ *
+ * The display schedule (couponSchedule) folds the maturity-dated coupon into the
+ * redemption row but carries only `face` there; for discounting, the maturity flow
+ * must be C+F (coupon + face) on a coupon bond, or F alone for zero-coupon. So the
+ * per-period coupon is added back onto the `redemption` row here.
+ */
 function futureCashFlows(bond: BondInput, settlementDate: string): CashFlow[] {
   const settleMs = isoToUtcMs(settlementDate)
   // Schedule with isFuture relative to settlement so we discount only what remains.
   const rows = couponSchedule(bond, { today: settlementDate })
+  const freq = bond.couponFrequency
+  const rate = Number(bond.couponRatePercent)
+  const periodCouponMinor =
+    freq > 0 && rate > 0 ? couponAmountMinor(bond.faceValueMinor, bond.couponRatePercent, freq) : 0
   const flows: CashFlow[] = []
   for (const r of rows) {
     const years = (isoToUtcMs(r.date) - settleMs) / DAY_MS / 365
-    if (years > 0) flows.push({ years, amount: r.amountMinor })
+    if (years <= 0) continue
+    // On maturity the cash flow is coupon + face (zero-coupon → face only).
+    const amount = r.kind === 'redemption' ? r.amountMinor + periodCouponMinor : r.amountMinor
+    flows.push({ years, amount })
   }
   return flows
 }
@@ -393,6 +411,18 @@ export async function latestQuoteMinor(
 // ---------------------------------------------------------------------------
 
 const MINOR_DIGITS = 2 // v1 currencies (UAH/USD/EUR) are all 2.
+
+/**
+ * Per-period coupon in minor units: roundHalfUp(faceValueMinor × rate% / 100 / freq),
+ * exact bigint fixed-point. `rate` is a percent figure ("15.7500"); the product
+ * faceValueMinor × rate is kept exact before the single half-up at the boundary.
+ */
+function couponAmountMinor(faceMinor: number, ratePercent: number | string, freq: number): number {
+  const rateScaled = parseDec(String(ratePercent), RATE_SCALE)
+  const num = BigInt(faceMinor) * rateScaled
+  const den = 100n * BigInt(freq) * 10n ** BigInt(RATE_SCALE)
+  return Number(divRoundHalfUp(num, den))
+}
 
 /** qty (decimal string) × faceValueMinor → exact minor-unit product as a number. */
 function qtyTimesFace(qtyStr: string, faceMinor: number): number {

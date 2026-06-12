@@ -13,6 +13,14 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Maps a caught error to an i18n key under `errors.*`, e.g. `t(errKey(e))`.
+ * ApiError → `errors.<MACHINE_CODE>`; anything else → `errors.UNKNOWN`.
+ */
+export function errKey(e: unknown): string {
+  return e instanceof ApiError ? `errors.${e.code}` : 'errors.UNKNOWN'
+}
+
 export async function apiFetch<T = unknown>(
   path: string,
   init: RequestInit = {},

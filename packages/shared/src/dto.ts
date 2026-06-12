@@ -139,10 +139,11 @@ export interface BondSchedule {
 export interface BondMetrics {
   ytmPercent: number;
   currentYieldPercent: number;
-  /** Numeric price string actually used. */
+  /** Clean price actually used — numeric string in major units (ТЗ §2 numeric convention). */
   priceUsed: string;
   /** `face` = synthetic fallback nominal, not a `price_source` enum value. */
   priceBasis: PriceSource | 'face';
+  /** Date of the price used (FR-27): the quote's date for a real quote, else the settlement date. */
   asOf: IsoDate;
 }
 
@@ -409,6 +410,8 @@ export interface CashflowPeriod {
 export interface CashflowResponse {
   periods: CashflowPeriod[];
   baseCurrency: CurrencyCode;
+  /** True when some cashflow row could not be FX-converted and is excluded from totals. */
+  valuationIncomplete?: boolean;
 }
 
 // ── Auth & settings ────────────────────────────────────────────────────────────

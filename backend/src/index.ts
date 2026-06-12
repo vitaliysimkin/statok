@@ -80,6 +80,7 @@ const app = new Hono()
 // Global error handler — CRR-2 format: {error, message}
 app.onError((err, c) => {
   logger.error('unhandled error', { message: err.message, stack: err.stack })
+  c.header('X-Content-Type-Options', 'nosniff')
   return c.json(
     {
       error: 'INTERNAL',
@@ -87,6 +88,11 @@ app.onError((err, c) => {
     },
     500,
   )
+})
+
+// 404 handler — CRR-2 format: {error, message}
+app.notFound((c) => {
+  return c.json({ error: 'NOT_FOUND', message: 'Route not found' }, 404)
 })
 
 // Security headers (X-Content-Type-Options, X-Frame-Options, …)

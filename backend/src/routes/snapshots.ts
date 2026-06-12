@@ -17,6 +17,7 @@ import { netWorthSnapshots } from '../db/schema.ts'
 import type { AppEnv } from '../middleware/requestContext.ts'
 import { getUserId } from '../middleware/requestContext.ts'
 import { authMiddleware } from '../middleware/auth.ts'
+import { processMaturedBonds } from '../services/bond.ts'
 import { runSnapshot, rebuild } from '../services/snapshot.ts'
 
 export const snapshotsRouter = new Hono<AppEnv>()
@@ -42,6 +43,10 @@ snapshotsRouter.post('/run', async (c) => {
   } else {
     date = todayKyiv()
   }
+
+  // FR-26/arch §3.3: auto-redeem matured bonds before computing the snapshot.
+  // Idempotent — bonds already at qty=0 are skipped inside processMaturedBonds.
+  await processMaturedBonds(date)
 
   const snapshot = await runSnapshot(userId, date)
   return c.json({ snapshot })
@@ -69,6 +74,19 @@ snapshotsRouter.post('/rebuild', async (c) => {
     return c.json({ error: 'VALIDATION_ERROR', message: 'from must be on or before to' }, 400)
   }
 
+  const fromMs = new Date(from).getTime()
+  const toMs = new Date(to).getTime()
+  const daySpan = Math.round((toMs - fromMs) / 86_400_000) + 1
+  if (daySpan > 3700) {
+    return c.json(
+      { error: 'VALIDATION_ERROR', message: `Range too large: ${daySpan} days (max 3700). Split into smaller intervals.` },
+      400,
+    )
+  }
+
+  // processMaturedBonds is intentionally NOT called here: rebuild replays history
+  // from stored transactions/prices, and redemptions were already created by
+  // EOD/run on those dates. Inserting them again would duplicate sells.
   const count = await rebuild(userId, from, to)
   return c.json({ count })
 })

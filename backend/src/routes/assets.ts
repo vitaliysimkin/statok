@@ -12,6 +12,8 @@
 import { Hono } from 'hono'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 
+import { displayToMinor, minorToDisplay } from '@statok/shared'
+
 import { db } from '../db/index.ts'
 import { assets, bondDetails, transactions } from '../db/schema.ts'
 import type { AppEnv } from '../middleware/requestContext.ts'
@@ -36,6 +38,9 @@ type AssetType = typeof ASSET_TYPES[number]
 
 const PRICE_SOURCES = ['yahoo', 'manual'] as const
 type PriceSource = typeof PRICE_SOURCES[number]
+
+/** RFC-4122 UUID shape; an invalid :id must 404, not surface a Postgres cast error (500). */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // ---------------------------------------------------------------------------
 // GET /api/assets
@@ -137,6 +142,7 @@ assetsRouter.post('/', async (c) => {
 assetsRouter.get('/:id', async (c) => {
   const userId = getUserId(c)
   const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
   const row = await getAssetOwnedBy(userId, id)
   if (!row) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
 
@@ -154,6 +160,7 @@ assetsRouter.get('/:id', async (c) => {
 assetsRouter.put('/:id', async (c) => {
   const userId = getUserId(c)
   const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
   const row = await getAssetOwnedBy(userId, id)
   if (!row) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
 
@@ -182,22 +189,24 @@ assetsRouter.put('/:id', async (c) => {
 
   assetUpdates.updatedAt = new Date()
 
+  // Validate the bond block BEFORE the transaction (as POST does) so an invalid
+  // block yields a canonical 400 instead of a 500 escaping the tx callback.
+  const updatesBond = 'bond' in b && row.type === 'bond' && b['bond'] != null
+  let bondValues: ReturnType<typeof bondInputToValues> | null = null
+  if (updatesBond) {
+    const bondInput = b['bond'] as Record<string, unknown>
+    const bondErr = validateBondInput(bondInput, true)
+    if (bondErr) return c.json({ error: 'VALIDATION_ERROR', message: bondErr }, 400)
+    bondValues = bondInputToValues(id, bondInput)
+  }
+
   await db.transaction(async (tx) => {
     await tx.update(assets).set(assetUpdates).where(eq(assets.id, id))
 
-    if ('bond' in b && row.type === 'bond' && b['bond'] != null) {
-      const bondInput = b['bond'] as Record<string, unknown>
-      const bondErr = validateBondInput(bondInput, true)
-      if (bondErr) throw new Error(`VALIDATION_ERROR:${bondErr}`)
-      const bd = bondInputToValues(id, bondInput)
-      await tx.insert(bondDetails).values(bd)
-        .onConflictDoUpdate({ target: bondDetails.assetId, set: { ...bd, updatedAt: new Date() } })
+    if (bondValues) {
+      await tx.insert(bondDetails).values(bondValues)
+        .onConflictDoUpdate({ target: bondDetails.assetId, set: { ...bondValues, updatedAt: new Date() } })
     }
-  }).catch((e: Error) => {
-    if (e.message.startsWith('VALIDATION_ERROR:')) {
-      throw e // re-throw so outer catch handles it
-    }
-    throw e
   })
 
   const [updated] = await db.select().from(assets).where(eq(assets.id, id)).limit(1)
@@ -215,6 +224,7 @@ assetsRouter.put('/:id', async (c) => {
 assetsRouter.delete('/:id', async (c) => {
   const userId = getUserId(c)
   const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
   const row = await getAssetOwnedBy(userId, id)
   if (!row) return c.json({ error: 'NOT_FOUND', message: 'Asset not found' }, 404)
 
@@ -239,6 +249,7 @@ assetsRouter.delete('/:id', async (c) => {
 assetsRouter.get('/:id/bond/schedule', async (c) => {
   const userId = getUserId(c)
   const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
   const asset = await getAssetOwnedBy(userId, id)
   if (!asset || asset.type !== 'bond') {
     return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
@@ -256,6 +267,7 @@ assetsRouter.get('/:id/bond/schedule', async (c) => {
 assetsRouter.get('/:id/bond/metrics', async (c) => {
   const userId = getUserId(c)
   const id = c.req.param('id')
+  if (!UUID_RE.test(id)) return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
   const asset = await getAssetOwnedBy(userId, id)
   if (!asset || asset.type !== 'bond') {
     return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
@@ -263,34 +275,42 @@ assetsRouter.get('/:id/bond/metrics', async (c) => {
   const bond = await getBondWithAsset(id)
   if (!bond) return c.json({ error: 'NOT_FOUND', message: 'Bond not found' }, 404)
 
-  // settlement = ?date (YYYY-MM-DD), default today Kyiv.
+  // settlement = ?date (YYYY-MM-DD), default today Kyiv — drives ACT/365F discounting.
   const dateParam = c.req.query('date')
-  const asOf = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : todayKyivIso()
+  const settlement = dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam) ? dateParam : todayKyivIso()
 
   // price resolution: explicit ?price= (clean price, major units, per 1 bond) →
-  // else latest quote ≤ asOf → else face value fallback.
+  // else latest quote ≤ settlement → else face value fallback.
+  // asOf (FR-27) is the *price* date: the quote's date for a real quote, else the
+  // settlement date for an explicit ?price= override or the face fallback.
   const priceParam = c.req.query('price')
-  let priceUsed: number // minor units (clean price per 1 bond)
+  let priceUsedMinor: number // minor units (clean price per 1 bond)
   let priceBasis: 'yahoo' | 'manual' | 'face'
+  let asOf: string
 
-  if (priceParam != null && priceParam !== '' && Number.isFinite(Number(priceParam))) {
-    priceUsed = Math.round(Number(priceParam) * 100)
-    // An explicit override is treated as a manual basis.
-    priceBasis = 'manual'
+  // Parse ?price= via bigint fixed-point (no float Math.round): '1234.565' → 123457.
+  if (priceParam != null && /^[+-]?\d+(\.\d+)?$/.test(priceParam.trim())) {
+    priceUsedMinor = displayToMinor(priceParam, bond.currency)
+    priceBasis = 'manual' // an explicit override is treated as a manual basis
+    asOf = settlement
   } else {
-    const quote = await latestQuoteMinor(id, bond.currency, asOf)
+    const quote = await latestQuoteMinor(id, bond.currency, settlement)
     if (quote) {
-      priceUsed = quote.priceMinor
+      priceUsedMinor = quote.priceMinor
       priceBasis = quote.source
+      asOf = quote.quoteDate
     } else {
-      priceUsed = bond.faceValueMinor
+      priceUsedMinor = bond.faceValueMinor
       priceBasis = 'face'
+      asOf = settlement
     }
   }
 
   const input = bondInputOf(bond)
-  const currentYieldPercent = currentYield(input, priceUsed) * 100
-  const ytmPercent = ytm(input, priceUsed, asOf)
+  const currentYieldPercent = currentYield(input, priceUsedMinor) * 100
+  const ytmPercent = ytm(input, priceUsedMinor, settlement)
+  // priceUsed travels as a numeric string in major units (ТЗ §2 numeric convention).
+  const priceUsed = minorToDisplay(priceUsedMinor, bond.currency)
 
   return c.json({ ytmPercent, currentYieldPercent, priceUsed, priceBasis, asOf })
 })

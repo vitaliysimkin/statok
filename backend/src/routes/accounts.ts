@@ -17,10 +17,19 @@ import { computePortfolioState } from '../services/valuation.ts'
 import { convert, FxRateNotFoundError } from '../services/fx.ts'
 
 const BASE_CURRENCY = (process.env['BASE_CURRENCY'] ?? 'USD') as string
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export const accountsRouter = new Hono<AppEnv>()
 
 accountsRouter.use('*', authMiddleware)
+
+// UUID guard — invalid :id → 404 before hitting Postgres
+accountsRouter.use('/:id{.+}', async (c, next) => {
+  if (!UUID_RE.test(c.req.param('id'))) {
+    return c.json({ error: 'NOT_FOUND', message: 'Account not found' }, 404)
+  }
+  return next()
+})
 
 // ---------------------------------------------------------------------------
 // GET /api/accounts

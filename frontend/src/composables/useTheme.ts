@@ -1,48 +1,29 @@
-import { ref } from 'vue'
+import type { Ref } from 'vue'
+import { applyTheme as kitApplyTheme, currentTheme as kitTheme } from '@vitaliysimkin/t-components'
 
 export type Theme = 'light' | 'dark' | 'auto'
 
+// Single theme mechanism: the kit owns class toggling (.light/.dark on <html>),
+// persistence to its own key, and the prefers-color-scheme listener for 'auto'.
+// We keep 'statok_theme' as the app's source of truth and seed the kit from it on
+// bootstrap, so the kit's currentTheme ref (and its own key) never drift from ours.
 const STORAGE_KEY = 'statok_theme'
+
+const theme = kitTheme as Ref<Theme>
+
+function setTheme(next: Theme) {
+  localStorage.setItem(STORAGE_KEY, next)
+  // Assigning the kit ref persists the kit's key, repaints the class, and keeps
+  // its matchMedia('auto') handler tracking the right value — one mechanism.
+  theme.value = next
+}
+
+// Bootstrap once on module load from our key, overriding whatever the kit read.
 const saved = localStorage.getItem(STORAGE_KEY) as Theme | null
-const current = ref<Theme>(saved === 'light' || saved === 'dark' || saved === 'auto' ? saved : 'auto')
-
-function resolve(theme: Theme): 'light' | 'dark' {
-  if (theme !== 'auto') return theme
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-}
-
-function apply(theme: Theme) {
-  document.documentElement.setAttribute('data-theme', resolve(theme))
-}
-
-let mql: MediaQueryList | null = null
-let mqlHandler: (() => void) | null = null
-
-function attachMediaListener() {
-  if (mql && mqlHandler) {
-    mql.removeEventListener('change', mqlHandler)
-  }
-  if (current.value === 'auto') {
-    mql = window.matchMedia('(prefers-color-scheme: dark)')
-    mqlHandler = () => apply('auto')
-    mql.addEventListener('change', mqlHandler)
-  } else {
-    mql = null
-    mqlHandler = null
-  }
-}
-
-// Bootstrap once on module load
-apply(current.value)
-attachMediaListener()
+const initial: Theme = saved === 'light' || saved === 'dark' || saved === 'auto' ? saved : 'auto'
+setTheme(initial)
+kitApplyTheme(initial)
 
 export function useTheme() {
-  function applyTheme(theme: Theme) {
-    current.value = theme
-    localStorage.setItem(STORAGE_KEY, theme)
-    apply(theme)
-    attachMediaListener()
-  }
-
-  return { theme: current, applyTheme }
+  return { theme, applyTheme: setTheme }
 }

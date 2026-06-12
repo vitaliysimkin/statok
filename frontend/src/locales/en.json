@@ -68,7 +68,9 @@
     "kindBroker": "Brokerage",
     "kindBank": "Bank",
     "kindCash": "Cash",
-    "kindDeposit": "Deposit",
+    "kindExchange": "Exchange",
+    "kindWallet": "Wallet",
+    "kindOther": "Other",
     "note": "Note",
     "balance": "Balance",
     "netWorth": "Net Worth",
@@ -125,6 +127,8 @@
     "priceSourceManual": "Manual",
     "noAssets": "No assets added yet",
     "includeArchived": "Show archived",
+    "archived": "Archived",
+    "priceHistory": "Price history",
     "deleteConfirm": "Delete asset \"{symbol}\"?",
     "archiveConfirm": "Archive asset \"{symbol}\"?",
     "tickerChange": "Change Ticker",
@@ -323,6 +327,7 @@
     "RATE_LIMITED": "Too many attempts. Please wait before trying again.",
     "NOT_FOUND": "Resource not found",
     "CONFLICT": "Conflict: {message}",
+    "INTERNAL": "Internal server error. Please try again later.",
     "UNKNOWN": "Unknown error. Please try again."
   }
 }

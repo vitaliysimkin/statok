@@ -24,6 +24,12 @@ export const fxRouter = new Hono<AppEnv>()
 
 fxRouter.use('*', authMiddleware)
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+// ISO-4217: exactly 3 ASCII letters
+const CCY_RE = /^[A-Za-z]{3}$/
+// Positive decimal, up to 8 decimal places
+const DECIMAL_RE = /^(?:0|[1-9]\d*)(?:\.\d{1,8})?$/
+
 // ---------------------------------------------------------------------------
 // GET /api/fx?base=&quote=&from=&to=
 // Returns stored fx_rates history for a pair, including source.
@@ -33,6 +39,20 @@ fxRouter.get('/', async (c) => {
 
   if (!base || !quote) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'base and quote are required' }, 400)
+  }
+
+  if (!CCY_RE.test(base)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'base must be a 3-letter ISO-4217 currency code' }, 400)
+  }
+  if (!CCY_RE.test(quote)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'quote must be a 3-letter ISO-4217 currency code' }, 400)
+  }
+
+  if (from && !ISO_DATE.test(from)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'from must be YYYY-MM-DD' }, 400)
+  }
+  if (to && !ISO_DATE.test(to)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'to must be YYYY-MM-DD' }, 400)
   }
 
   const filters = [
@@ -101,8 +121,15 @@ fxRouter.get('/convert', async (c) => {
 fxRouter.put('/:date/:base/:quote', async (c) => {
   const { date, base, quote } = c.req.param()
 
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  if (!ISO_DATE.test(date)) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'date must be YYYY-MM-DD' }, 400)
+  }
+
+  if (!CCY_RE.test(base)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'base must be a 3-letter ISO-4217 currency code' }, 400)
+  }
+  if (!CCY_RE.test(quote)) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'quote must be a 3-letter ISO-4217 currency code' }, 400)
   }
 
   const body = await c.req.json().catch(() => null)
@@ -110,13 +137,22 @@ fxRouter.put('/:date/:base/:quote', async (c) => {
     return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400)
   }
 
-  const rate = body.rate
-  if (rate === undefined || rate === null) {
+  const rateRaw = body.rate
+  if (rateRaw === undefined || rateRaw === null) {
     return c.json({ error: 'VALIDATION_ERROR', message: 'rate is required' }, 400)
   }
-  const rateNum = Number(rate)
-  if (!isFinite(rateNum) || rateNum <= 0) {
-    return c.json({ error: 'VALIDATION_ERROR', message: 'rate must be a positive number' }, 400)
+
+  // Accept number or string; coerce to string for regex validation
+  const rateStr = String(rateRaw)
+  if (!DECIMAL_RE.test(rateStr)) {
+    return c.json(
+      { error: 'VALIDATION_ERROR', message: 'rate must be a positive decimal with up to 8 decimal places' },
+      400,
+    )
+  }
+  // Zero is not allowed (rate must be > 0)
+  if (parseFloat(rateStr) <= 0) {
+    return c.json({ error: 'VALIDATION_ERROR', message: 'rate must be greater than zero' }, 400)
   }
 
   const baseCcy = base.toUpperCase()
@@ -128,13 +164,13 @@ fxRouter.put('/:date/:base/:quote', async (c) => {
       rateDate: date,
       baseCcy,
       quoteCcy,
-      rate: String(rateNum),
+      rate: rateStr,
       source: 'manual',
     })
     .onConflictDoUpdate({
       target: [fxRates.rateDate, fxRates.baseCcy, fxRates.quoteCcy],
       set: {
-        rate: String(rateNum),
+        rate: rateStr,
         source: 'manual',
       },
       setWhere: sql`true`,
