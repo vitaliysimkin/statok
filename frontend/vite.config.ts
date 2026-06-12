@@ -55,6 +55,26 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      // @vitaliysimkin/t-components еагерно імпортує codemirror у своєму барелі
+      // (для компонента-редактора коду), якого Statok не використовує. Ці
+      // peer-залежності не встановлені. Аляс на локальний no-op-стаб однаково
+      // лагодить dev (esbuild optimizeDeps сканує весь барель) і build (Rollup),
+      // без доставляння codemirror-пакетів. Деталі — у codemirror-stub.ts.
+      'codemirror': fileURLToPath(
+        new URL('./src/lib/codemirror-stub.ts', import.meta.url),
+      ),
+      '@codemirror/state': fileURLToPath(
+        new URL('./src/lib/codemirror-stub.ts', import.meta.url),
+      ),
+      '@codemirror/lang-json': fileURLToPath(
+        new URL('./src/lib/codemirror-stub.ts', import.meta.url),
+      ),
+      '@codemirror/lang-markdown': fileURLToPath(
+        new URL('./src/lib/codemirror-stub.ts', import.meta.url),
+      ),
+      '@codemirror/theme-one-dark': fileURLToPath(
+        new URL('./src/lib/codemirror-stub.ts', import.meta.url),
+      ),
     },
   },
   server: {
@@ -62,16 +82,5 @@ export default defineConfig({
   },
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-  },
-  build: {
-    rollupOptions: {
-      external: [
-        'codemirror',
-        '@codemirror/state',
-        '@codemirror/lang-json',
-        '@codemirror/lang-markdown',
-        '@codemirror/theme-one-dark',
-      ],
-    },
   },
 })
