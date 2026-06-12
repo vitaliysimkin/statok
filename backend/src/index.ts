@@ -136,5 +136,3 @@ start().catch((err: unknown) => {
   logger.error('fatal startup error', { message: (err as Error).message })
   process.exit(1)
 })
-
-export default app

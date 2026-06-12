@@ -1,0 +1,65 @@
+/* Global theme tokens. useTheme.ts sets data-theme="light"|"dark" on <html>.
+   Components reference --color-* (app) and --t-* (t-components kit) custom properties. */
+
+:root,
+:root[data-theme='light'] {
+  --color-bg: #f7f8fa;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f3f4f6;
+  --color-chip-bg: #eef2f7;
+  --color-border: #e2e5e9;
+  --color-text: #1a1d21;
+  --color-text-secondary: #4b5563;
+  --color-text-muted: #9ca3af;
+  --color-accent: #2563eb;
+  --color-success: #16a34a;
+  --color-error: #dc2626;
+  --color-input: #1a1d21;
+  --color-input-bg: #ffffff;
+
+  /* @vitaliysimkin/t-components tokens */
+  --t-bg: #f7f8fa;
+  --t-bg-subtle: #eef2f7;
+  --t-surface: #ffffff;
+  --t-border: #e2e5e9;
+  --t-accent: #2563eb;
+  --t-danger: #dc2626;
+  --t-hover: #f3f4f6;
+}
+
+:root[data-theme='dark'] {
+  --color-bg: #111418;
+  --color-surface: #1b1f24;
+  --color-surface-hover: #242a31;
+  --color-chip-bg: #242a31;
+  --color-border: #2e353d;
+  --color-text: #e6e9ed;
+  --color-text-secondary: #aab2bd;
+  --color-text-muted: #6b7280;
+  --color-accent: #60a5fa;
+  --color-success: #4ade80;
+  --color-error: #f87171;
+  --color-input: #e6e9ed;
+  --color-input-bg: #14171b;
+
+  --t-bg: #111418;
+  --t-bg-subtle: #1b1f24;
+  --t-surface: #1b1f24;
+  --t-border: #2e353d;
+  --t-accent: #60a5fa;
+  --t-danger: #f87171;
+  --t-hover: #242a31;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}

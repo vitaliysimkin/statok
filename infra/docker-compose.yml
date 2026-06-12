@@ -1,0 +1,56 @@
+services:
+  frontend:
+    image: ghcr.io/vitaliysimkin/statok/frontend:${STATOK_VERSION:-latest}
+    networks: [web, default]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - traefik.http.routers.statok-web.rule=Host(`statok.simk.in.ua`)
+      - traefik.http.routers.statok-web.entrypoints=websecure
+      - traefik.http.routers.statok-web.tls.certresolver=le
+      - traefik.http.services.statok-web.loadbalancer.server.port=80
+    restart: unless-stopped
+
+  backend:
+    image: ghcr.io/vitaliysimkin/statok/backend:${STATOK_VERSION:-latest}
+    env_file: /opt/statok/.env
+    environment:
+      TZ: Europe/Kyiv
+    networks: [web, default]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      # Dedicated API host
+      - traefik.http.routers.statok-api.rule=Host(`api.statok.simk.in.ua`)
+      - traefik.http.routers.statok-api.entrypoints=websecure
+      - traefik.http.routers.statok-api.tls.certresolver=le
+      - traefik.http.routers.statok-api.service=statok-backend
+      # Path-prefix routes on the main host (higher priority than frontend catch-all)
+      - traefik.http.routers.statok-app-paths.rule=Host(`statok.simk.in.ua`) && (PathPrefix(`/api`) || PathPrefix(`/auth`) || Path(`/health`))
+      - traefik.http.routers.statok-app-paths.entrypoints=websecure
+      - traefik.http.routers.statok-app-paths.tls.certresolver=le
+      - traefik.http.routers.statok-app-paths.priority=100
+      - traefik.http.routers.statok-app-paths.service=statok-backend
+      - traefik.http.services.statok-backend.loadbalancer.server.port=3000
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: statok
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: statok
+    networks: [default]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+networks:
+  web:
+    external: true   # shared Traefik edge network (dakara repo)
+  default: {}
+
+volumes:
+  postgres_data:

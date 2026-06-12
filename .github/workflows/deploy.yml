@@ -1,0 +1,93 @@
+name: Deploy
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  wait-for-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for build-backend to succeed
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-name: build (build-backend)
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+
+      - name: Wait for build-frontend to succeed
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.ref }}
+          check-name: build (build-frontend)
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+
+  deploy:
+    needs: wait-for-builds
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Copy infra to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}           # [manual-owner]
+          username: ${{ secrets.VPS_USER }}        # [manual-owner]
+          key: ${{ secrets.VPS_SSH_KEY }}          # [manual-owner]
+          source: infra/
+          target: /opt/statok/
+          strip_components: 1
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+            sed -i "s/^STATOK_VERSION=.*/STATOK_VERSION=${{ steps.meta.outputs.version }}/" /opt/statok/.env
+            cd /opt/statok
+            docker compose -f docker-compose.yml pull
+            docker compose -f docker-compose.yml up -d --remove-orphans
+
+      - name: Health check
+        run: |
+          for i in $(seq 1 24); do
+            STATUS=$(curl -sf https://api.statok.simk.in.ua/health | jq -r '.status' 2>/dev/null || echo "")
+            if [ "$STATUS" = "ok" ]; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/24: waiting 5s..."
+            sleep 5
+          done
+          echo "Health check timed out after 120s" && exit 1
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+
+      - name: Telegram notify
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          VERSION="${{ github.ref_name }}"
+          EMOJI="✅"
+          [ "$STATUS" != "success" ] && EMOJI="❌"
+          curl -sf -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d text="${EMOJI} Statok ${VERSION} deploy: ${STATUS}" || true
+          # TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID — [manual-owner]
