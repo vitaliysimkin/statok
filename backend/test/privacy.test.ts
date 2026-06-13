@@ -55,6 +55,8 @@ const ALLOWED_HOSTS = [
   'api.frankfurter.dev',
   'api.frankfurter.app',
   'bank.gov.ua',
+  'www.googleapis.com',
+  'accounts.google.com',
 ]
 
 // Hosts that are the server itself (listen address in log messages) — not external calls.

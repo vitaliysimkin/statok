@@ -55,7 +55,11 @@
     "loginError": "Invalid credentials",
     "sessionExpired": "Session expired. Please sign in again.",
     "logoutConfirm": "Sign out?",
-    "welcome": "Welcome"
+    "welcome": "Welcome",
+    "signInWithGoogle": "Sign in with Google",
+    "forbidden": "Access is restricted to the owner",
+    "googleError": "Failed to load Google Sign-In. Check your connection.",
+    "notConfigured": "Google Sign-In is not configured on this server."
   },
   "accounts": {
     "title": "Accounts",

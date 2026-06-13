@@ -47,6 +47,16 @@ function validateEnv(): void {
   // BASE_CURRENCY read once on boot; default USD (ТЗ §8.3).
   const baseCurrency = process.env.BASE_CURRENCY ?? 'USD'
   logger.info('env validated', { baseCurrency })
+
+  // Google sign-in config — NOT fatal (google-auth-task §5/§8): the process must
+  // start even without it. Missing GOOGLE_CLIENT_ID → /auth/google returns 503
+  // AUTH_NOT_CONFIGURED. Just warn so misconfiguration is visible in logs.
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    logger.warn('GOOGLE_CLIENT_ID not set — Google sign-in disabled (/auth/google → 503)')
+  }
+  if (!process.env.ALLOWED_GOOGLE_EMAIL) {
+    logger.warn('ALLOWED_GOOGLE_EMAIL not set — no Google account will be allowed in (403)')
+  }
 }
 
 // ---------------------------------------------------------------------------

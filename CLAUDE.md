@@ -40,14 +40,16 @@
 
 ### Backend
 
-- Усі ендпоінти, крім `POST /auth/login` і `GET /health`, — під `authMiddleware` (Bearer JWT) — CRR-1.
+- Усі ендпоінти, крім `POST /auth/login`, `POST /auth/google` і `GET /health`, — під `authMiddleware` (Bearer JWT) — CRR-1.
 - Формат помилки: `{ "error": "MACHINE_CODE", "message": "human readable" }` — CRR-2.
 - Усі доменні таблиці мають `user_id` (single-user, але uniform-схема) — CRR-5.
 - Час: timestamp-колонки — `timestamptz`; «бізнес-дата» (котирування/курси/снапшоти) — `date`
   у TZ `Europe/Kyiv`.
 - Валюти — ISO-4217 коди (`char(3)`) — CRR-4.
 - Жодних вихідних HTTP-викликів, крім Yahoo (`query1/query2.finance.yahoo.com`),
-  Frankfurter (`frankfurter.dev`/`frankfurter.app`), НБУ (`bank.gov.ua`) — NFR-01.
+  Frankfurter (`frankfurter.dev`/`frankfurter.app`), НБУ (`bank.gov.ua`),
+  Google JWKS (`www.googleapis.com`, бекенд, `POST /auth/google`) — NFR-01.
+  Фронтенд додатково звертається до `accounts.google.com` (GIS-скрипт, лише сторінка логіну).
 
 ### Адаптив
 

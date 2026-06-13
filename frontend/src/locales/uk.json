@@ -55,7 +55,11 @@
     "loginError": "Невірні облікові дані",
     "sessionExpired": "Сесія закінчилась. Увійдіть знову.",
     "logoutConfirm": "Справді вийти?",
-    "welcome": "Ласкаво просимо"
+    "welcome": "Ласкаво просимо",
+    "signInWithGoogle": "Увійти через Google",
+    "forbidden": "Доступ дозволено лише власнику",
+    "googleError": "Не вдалося завантажити Google Sign-In. Перевірте з'єднання.",
+    "notConfigured": "Google Sign-In не налаштовано на цьому сервері."
   },
   "accounts": {
     "title": "Рахунки",

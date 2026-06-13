@@ -420,6 +420,10 @@ export interface LoginRequest {
   username: string;
   password: string;
 }
+/** Body of POST /auth/google — the Google Identity Services ID token. */
+export interface GoogleLoginRequest {
+  credential: string;
+}
 export interface LoginResponse {
   token: string;
   username: string;

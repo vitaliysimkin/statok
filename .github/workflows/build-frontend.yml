@@ -21,9 +21,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from tag
+      - name: Docker metadata
         id: meta
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/vitaliysimkin/statok/frontend
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -33,6 +39,9 @@ jobs:
           push: true
           build-args: |
             VITE_API_URL=https://api.statok.simk.in.ua
-          tags: |
-            ghcr.io/vitaliysimkin/statok/frontend:${{ steps.meta.outputs.version }}
-            ghcr.io/vitaliysimkin/statok/frontend:latest
+            # Google OAuth Client ID is PUBLIC (it ships in the frontend bundle), so it
+            # lives in a repository *variable*, not a secret. Empty/unset is a valid
+            # value: the login page falls back to the password form when it is blank.
+            VITE_GOOGLE_CLIENT_ID=${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

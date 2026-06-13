@@ -48,15 +48,23 @@ jobs:
           strip_components: 1
 
       - name: Deploy on VPS
-        uses: appleboy/ssh-action@v1.0.3
+        uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            sed -i "s/^STATOK_VERSION=.*/STATOK_VERSION=${{ steps.meta.outputs.version }}/" /opt/statok/.env
             cd /opt/statok
+            touch .env
+            # Idempotent sed-or-echo (flatlog pattern): update the version line if present,
+            # otherwise append it. Prevents a first-deploy failure when the .env was created
+            # without a STATOK_VERSION= line.
+            if grep -q '^STATOK_VERSION=' .env; then
+              sed -i "s/^STATOK_VERSION=.*/STATOK_VERSION=${{ steps.meta.outputs.version }}/" .env
+            else
+              echo "STATOK_VERSION=${{ steps.meta.outputs.version }}" >> .env
+            fi
             docker compose -f docker-compose.yml pull
             docker compose -f docker-compose.yml up -d --remove-orphans
 

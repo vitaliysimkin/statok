@@ -77,7 +77,7 @@
 
 **Наскрізні правила (стосуються всіх FR, далі не повторюються):**
 
-- **CRR-1 (auth-gate):** усі ендпоінти, крім `POST /auth/login` і `GET /health`, доступні лише з валідним Bearer JWT; без токена → 401 `UNAUTHORIZED`.
+- **CRR-1 (auth-gate):** усі ендпоінти, крім `POST /auth/login`, `POST /auth/google` і `GET /health`, доступні лише з валідним Bearer JWT; без токена → 401 `UNAUTHORIZED`.
 - **CRR-2 (формат помилок):** будь-яка помилка → `{ "error": "MACHINE_CODE", "message": "..." }` з кодами статусів за `arch §2`.
 - **CRR-3 (гроші):** жодних обчислень через float; лише decimal-хелпери `packages/shared` (`arch §0`). Округлення half-up до minor unit на межі numeric→minor.
 - **CRR-4 (валюти):** код валюти — ISO-4217, 3 літери, верхній регістр. Невідомий/невалідний код → 400 `VALIDATION_ERROR`.
@@ -89,34 +89,54 @@
 
 ### 1. Автентифікація
 
-Логін/пароль із сід-адміна (env), JWT (`jose`, HS256, TTL 7 діб), rate-limit логіну. Деталі реалізації — `arch §1.2`, `§2 auth`, `§9`.
+Основний вхід — через Google (Google Identity Services, ID token, allowlist по email); парольний вхід — break-glass за `ENABLE_PASSWORD_LOGIN`. JWT (`jose`, HS256, TTL 7 діб), rate-limit обох ендпоінтів входу. Деталі реалізації — `arch §1.2`, `§2 auth`, `§9`.
 
 #### FR-01 — Сід адміністратора з env
-Єдиний користувач створюється автоматично при старті бекенда з `ADMIN_USERNAME`/`ADMIN_PASSWORD`.
+Єдиний користувач створюється автоматично при старті бекенда з `ADMIN_USERNAME`/`ADMIN_PASSWORD`. Цей рядок `users` є носієм `userId` для обох способів входу (Google і break-glass пароль).
 
 - [ ] При першому старті з порожньою таблицею `users` створюється користувач із `username = ADMIN_USERNAME`, `password_hash = bcrypt(ADMIN_PASSWORD, 10)`.
 - [ ] При повторному старті, якщо користувач із таким `username` уже існує, сід НЕ перезаписує його (пароль не змінюється).
 - [ ] Зміна `ADMIN_PASSWORD` в env + перезапуск НЕ змінює пароль наявного користувача (зміна пароля у v1 — лише вручну SQL/пересідом, документується в README).
 - [ ] Відсутній `JWT_SECRET` або `DATABASE_URL` на старті → процес завершується з fatal-помилкою і зрозумілим повідомленням (`arch §8.3`).
+- [ ] Відсутній `GOOGLE_CLIENT_ID` на старті → попередження (warn-лог), але НЕ fatal; `POST /auth/google` у такому разі повертає `503 AUTH_NOT_CONFIGURED`.
 
-#### FR-02 — Логін і видача токена
-`POST /auth/login {username, password}` → `{token, username}`.
+#### FR-02 — Вхід через Google і видача токена (основний потік)
+`POST /auth/google { credential: "<google_id_token>" }` → `{ token, username }`.
 
-- [ ] Валідні креденшали → 200 із JWT (claims `sub`, `username`, `exp`; TTL 7 діб).
-- [ ] Невірний пароль або неіснуючий username → 401 `UNAUTHORIZED` з однаковим повідомленням (не розкривати, що саме невірне).
+Потік end-to-end:
+1. Фронтенд ініціалізує Google Identity Services (`accounts.google.com/gsi/client`) із `client_id = VITE_GOOGLE_CLIENT_ID` і рендерить кнопку «Sign in with Google».
+2. Після вибору акаунта GIS повертає `credential` (підписаний Google ID token).
+3. Фронтенд надсилає `POST /auth/google { credential }`.
+4. Бекенд верифікує підпис через `jose` (`createRemoteJWKSet('https://www.googleapis.com/oauth2/v3/certs')`, `jwtVerify`) і всі клейми (деталі — `arch §9 → Google OIDC`).
+5. Успішна верифікація → бекенд знаходить єдиного адмін-користувача, видає ВЛАСНИЙ statok-JWT тим самим `signToken({ userId, username })`.
+6. Відповідь `200 { token, username }` — той самий формат, що і в `POST /auth/login`.
+
+- [ ] Валідний Google ID token + `email === ALLOWED_GOOGLE_EMAIL` + `email_verified === true` → 200 із власним statok-JWT (claims `sub`, `username`, `exp`; TTL 7 діб).
+- [ ] `email !== ALLOWED_GOOGLE_EMAIL` або `email_verified !== true` → 403 `FORBIDDEN` `{ error: 'FORBIDDEN', message: 'Access denied' }`.
+- [ ] Невалідний підпис / `iss` / `aud` / `exp` → 401 `UNAUTHORIZED`.
+- [ ] Тіло без `credential` або `credential` не рядок → 400 `VALIDATION_ERROR`.
+- [ ] Відсутній `GOOGLE_CLIENT_ID` → 503 `AUTH_NOT_CONFIGURED`.
+- [ ] Google ID token ніде не зберігається і не логується; у лог — лише `email` (або хеш) + `ip` + результат.
+- [ ] Видаються ТОЙ ЖЕ statok-JWT і ТА САМА механіка, що і в `/auth/login`; `authMiddleware`, `/auth/refresh`, `/auth/me`, `/auth/logout` без змін.
+
+#### FR-02b — Парольний вхід (break-glass, вимкнено в проді)
+`POST /auth/login {username, password}` — ендпоінт залишається у коді як break-glass і керується флагом `ENABLE_PASSWORD_LOGIN` (default `false`).
+
+- [ ] `ENABLE_PASSWORD_LOGIN=true` (dev): поведінка без змін — валідні креденшали → 200 JWT; невірні → 401; тіло без полів → 400; rate-limit 5/15хв по IP.
+- [ ] `ENABLE_PASSWORD_LOGIN` відсутній або `!= 'true'` (прод): `/auth/login` повертає `403 FORBIDDEN` без звернення до БД. Це захист від downgrade: знання `ADMIN_PASSWORD` не дає входу ззовні.
+- [ ] Фронтенд показує парольну форму лише при `VITE_GOOGLE_CLIENT_ID` порожньому (dev/fallback); у проді — лише кнопка Google.
 - [ ] У лог пишеться лише `username` + `ip` + причина; пароль/токен у логи НЕ потрапляють.
-- [ ] Тіло без `username` або `password` → 400 `VALIDATION_ERROR`.
 
 #### FR-03 — Rate-limit логіну
-In-memory лічильник невдалих спроб по IP (`x-forwarded-for` від Traefik).
+In-memory лічильник невдалих спроб по IP (`x-forwarded-for` від Traefik). Застосовується до обох ендпоінтів входу: `POST /auth/login` і `POST /auth/google`.
 
 - [ ] Після 5 невдалих спроб за вікно 15 хв з одного IP наступна спроба → 429 `RATE_LIMITED` із заголовком `Retry-After`.
-- [ ] Успішний логін скидає лічильник для цього IP.
+- [ ] Успішний вхід (через будь-який ендпоінт) скидає лічильник для цього IP.
 - [ ] Вікно ковзне/скидається після 15 хв без перевищення; легітимний користувач після паузи може зайти.
-- [ ] Rate-limit НЕ застосовується до інших ендпоінтів (лише `/auth/login`).
+- [ ] Rate-limit НЕ застосовується до інших ендпоінтів.
 
 #### FR-04 — Сесія, refresh, вихід
-Sliding re-issue; ревокації на сервері нема (`arch §9`).
+Sliding re-issue; ревокації на сервері нема (`arch §9`). Google-вхід видає той самий statok-JWT — механіка сесії ідентична для обох шляхів входу.
 
 - [ ] `POST /auth/refresh` зі ще валідним токеном → новий токен зі свіжим TTL 7 діб.
 - [ ] Фронтенд викликає `refresh` при старті застосунку (якщо токен у localStorage є й не протух).
@@ -678,16 +698,18 @@ Precache build-асетів; network-first для API (`arch §7.5`).
 | `api.frankfurter.dev` / `api.frankfurter.app` | Крос-курси ECB | Рантайм (джоба `syncFxRates`) | ✓ |
 | `bank.gov.ua` (НБУ) | Офіційний курс UAH | Рантайм (джоба `syncFxRates`) | ✓ |
 | Telegram Bot API | Нотифікації деплою | CI/CD (не рантайм), мінімум даних | ✓ |
+| `accounts.google.com` | GIS-кнопка входу (`gsi/client`) | Фронтенд рантайм (лише сторінка логіну) | ✓ |
+| `www.googleapis.com` | JWKS Google (верифікація підпису Google ID token) | Бекенд рантайм (`POST /auth/google`) | ✓ |
 
 - [ ] Жодних інших вихідних мережевих викликів із рантайму бекенда (перевірка: код не містить fetch до інших хостів).
-- [ ] Жодної фронтенд-аналітики/трекерів/CDN сторонніх (CSP `connect-src 'self' https://api.statok.simk.in.ua`, `arch §9`).
+- [ ] Жодної фронтенд-аналітики/трекерів/CDN сторонніх (CSP розширений рівно на домени Google: `connect-src 'self' https://api.statok.simk.in.ua https://accounts.google.com`, `script-src 'self' https://accounts.google.com`, `frame-src https://accounts.google.com`; `arch §9`).
 - [ ] Telegram-нотифікації несуть мінімум даних (статус/версія деплою), без вмісту портфеля.
 - [ ] `docker.sock` у контейнери НЕ монтується (`arch §9`).
 
 ### NFR-02 — Безпека
 Деталі — `arch §9`.
 
-- [ ] Усі ендпоінти крім login/health — під JWT (CRR-1).
+- [ ] Усі ендпоінти крім `/auth/login`, `/auth/google` і `/health` — під JWT (CRR-1).
 - [ ] Паролі — bcrypt (cost 10); у логи/відповіді не потрапляють.
 - [ ] CORS — строгий allowlist із `CORS_ORIGINS` (прод — лише `https://statok.simk.in.ua`), `credentials: false`.
 - [ ] Security headers на бекенді (`hono/secure-headers`) і nginx (CSP/HSTS/X-Frame-Options/nosniff, `arch §9`).
@@ -1064,7 +1086,7 @@ export const appSettings = pgTable('app_settings', {
 
 ### 2. API-поверхня (Hono REST)
 
-Маунт як у tardis: `/health` і `/auth` без префікса, решта під `/api/*` (Traefik у blueprint роутить саме `/api`, `/auth`, `/health`). Всі ендпоінти крім `POST /auth/login` і `GET /health` — під `authMiddleware` (Bearer JWT).
+Маунт як у tardis: `/health` і `/auth` без префікса, решта під `/api/*` (Traefik у blueprint роутить саме `/api`, `/auth`, `/health`). Всі ендпоінти крім `POST /auth/login`, `POST /auth/google` і `GET /health` — під `authMiddleware` (Bearer JWT).
 
 **Формат помилки**: `{ "error": "MACHINE_CODE", "message": "human readable" }`. Коди статусів: 400 `VALIDATION_ERROR`/`CURRENCY_MISMATCH`, 401 `UNAUTHORIZED`, 404 `NOT_FOUND`/`FX_RATE_NOT_FOUND`, 409 `CONFLICT`/`INSUFFICIENT_QUANTITY`/`ACCOUNT_HAS_TRANSACTIONS`/`ASSET_HAS_TRANSACTIONS`, 429 `RATE_LIMITED`, 500 `INTERNAL`.
 
@@ -1074,7 +1096,8 @@ export const appSettings = pgTable('app_settings', {
 
 | Метод | Шлях | Тіло → Відповідь | Помилки |
 |---|---|---|---|
-| POST | `/auth/login` | `{username, password}` → `{token, username}` | 401, 429 |
+| POST | `/auth/google` | `{credential}` → `{token, username}` | 400, 401, 403, 429, 503 |
+| POST | `/auth/login` | `{username, password}` → `{token, username}` (break-glass, `ENABLE_PASSWORD_LOGIN`) | 401, 403, 429 |
 | POST | `/auth/refresh` | — (Bearer) → `{token}` (новий, свіжий TTL) | 401 |
 | POST | `/auth/logout` | — → `{ok:true}` (лог-запис; інвалідація клієнтська) | 401 |
 | GET | `/auth/me` | → `{userId, username}` | 401 |
@@ -1492,6 +1515,9 @@ BASE_CURRENCY=USD
 PORT=3100
 TZ=Europe/Kyiv
 CORS_ORIGINS=http://localhost:5273
+GOOGLE_CLIENT_ID=              # OAuth 2.0 Web Client ID (заповнити локально, не комітити)
+ALLOWED_GOOGLE_EMAIL=vitaliy.simkin@gmail.com
+ENABLE_PASSWORD_LOGIN=true     # dev: парольний вхід увімкнено як fallback
 ```
 
 #### 8.2 Прод `.env` (ЛИШЕ на VPS, `/opt/statok/.env`; ніколи в репо)
@@ -1507,35 +1533,75 @@ BASE_CURRENCY=USD
 PORT=3000
 TZ=Europe/Kyiv
 CORS_ORIGINS=https://statok.simk.in.ua
+GOOGLE_CLIENT_ID=<OAuth 2.0 Web Client ID із Google Cloud Console>
+ALLOWED_GOOGLE_EMAIL=vitaliy.simkin@gmail.com
+# ENABLE_PASSWORD_LOGIN не виставляти (або =false) — парольний вхід вимкнено
 ```
 
-#### 8.3 Інше
+#### 8.3 Змінні середовища — повний перелік
 
-- `VITE_API_URL=https://api.statok.simk.in.ua` — build-arg фронтенд-образу (CI), НЕ runtime-env. **Інваріант синхронізації:** домен у CSP `connect-src` (`frontend/nginx.conf`, §9) має збігатися з хостом `VITE_API_URL`; зміна API-домену потребує правки обох місць (інакше fetch тихо блокується CSP).
+| Ключ | Де | Призначення | Обовʼязковість |
+|---|---|---|---|
+| `DATABASE_URL` | backend `.env` | PostgreSQL connection string | Fatal на старті |
+| `JWT_SECRET` | backend `.env` | Секрет підпису HS256 JWT (мін. 32 байти) | Fatal на старті |
+| `ADMIN_USERNAME` | backend `.env` | Username сід-адміна | Обовʼязковий |
+| `ADMIN_PASSWORD` | backend `.env` | Пароль сід-адміна (bcrypt cost 10) | Обовʼязковий |
+| `BASE_CURRENCY` | backend `.env` | ISO-код базової валюти, деф. USD | Опціональний |
+| `PORT` | backend `.env` | HTTP-порт бекенда | Опціональний (деф. 3000) |
+| `TZ` | backend `.env` | Таймзона процесу (Europe/Kyiv) | Опціональний |
+| `CORS_ORIGINS` | backend `.env` | Дозволені CORS-origins (кома-сепарований) | Обовʼязковий |
+| `GOOGLE_CLIENT_ID` | backend `.env` | OAuth 2.0 Web Client ID (Google Cloud Console) | Не fatal; відсутній → warn + `/auth/google` → 503 |
+| `ALLOWED_GOOGLE_EMAIL` | backend `.env` | Email, якому дозволено вхід (`vitaliy.simkin@gmail.com`) | Обовʼязковий при Google-вході |
+| `ENABLE_PASSWORD_LOGIN` | backend `.env` | `true` — парольний `/auth/login` активний; будь-яке інше або відсутній — 403 | Опціональний (деф. вимкнено) |
+| `VITE_API_URL` | frontend build-arg (CI) | URL бекенд API; НЕ runtime-env | Build-time |
+| `VITE_GOOGLE_CLIENT_ID` | frontend build-arg (CI) | Client ID для GIS на фронтенді; порожній → показувати парольну форму | Build-time |
+
+**Нотатки:**
+- `VITE_API_URL` — **Інваріант синхронізації:** домен у CSP `connect-src` (`frontend/nginx.conf`, §9) має збігатися з хостом `VITE_API_URL`; зміна API-домену потребує правки обох місць (інакше fetch тихо блокується CSP).
+- `GOOGLE_CLIENT_ID` не є секретом у строгому сенсі (він публічний у фронт-бандлі), але зберігається в env для зручності ротації й уникнення хардкоду.
+- `VITE_GOOGLE_CLIENT_ID` має збігатися з `GOOGLE_CLIENT_ID`; обидва беруться з GitHub-секрета/variable для CI.
 - `/opt/statok/backup.env` (VPS): `AGE_RECIPIENT=age1...`, `RCLONE_REMOTE=b2` (+ rclone config окремо через `rclone config`).
-- Усе читається один раз на старті (`process.env`), валідація обовʼязкових ключів при boot — відсутній `JWT_SECRET`/`DATABASE_URL` → fatal exit із зрозумілим повідомленням. `BASE_CURRENCY` — ISO-код, деф. USD; зміна на льоту не підтримується (снапшоти зберігають свою валюту в рядку).
+- Усе читається один раз на старті (`process.env`); `BASE_CURRENCY` — ISO-код, деф. USD; зміна на льоту не підтримується (снапшоти зберігають свою валюту в рядку).
 
 ---
 
 ### 9. Безпека
 
 - **JWT**: бібліотека `jose` (`SignJWT`/`jwtVerify`), HS256, секрет `JWT_SECRET` (мін. 32 байти, валідація на старті). Claims: `sub` (userId), `username`, `exp`. **TTL 7 діб** (паритет tardis). **Refresh-підхід — sliding re-issue**: `POST /auth/refresh` із ще валідним токеном повертає новий на 7 діб; фронтенд викликає його при старті застосунку. Окремих refresh-токенів і server-side ревокації нема — свідомий компроміс single-user self-hosted (логаут = видалення токена на клієнті).
-- **Паролі**: `bcryptjs`, cost 10 (tardis). Один користувач, сід з env (§1.2). Зміна пароля — через зміну `ADMIN_PASSWORD`+перезапуск? НІ: сід не перезаписує існуючого юзера (патерн tardis); зміна пароля у v1 — вручну SQL-ом або пересідом (документувати в README; UI-зміна пароля — поза v1).
-- **Rate-limit логіну**: in-memory (`lib/rateLimit.ts`, Map по `ip` із заголовка `x-forwarded-for` від Traefik): максимум **5 невдалих спроб за 15 хв** → 429 `RATE_LIMITED` + `Retry-After`. Скидання при успішному логіні. In-memory достатньо (один інстанс).
+- **Паролі**: `bcryptjs`, cost 10 (tardis). Один користувач, сід з env (§1.2). Зміна пароля — через зміну `ADMIN_PASSWORD`+перезапуск? НІ: сід не перезаписує існуючого юзера (патерн tardis); зміна пароля у v1 — вручну SQL-ом або пересідом (документувати в README; UI-зміна пароля — поза v1). Парольний вхід (`POST /auth/login`) у проді вимкнений флагом `ENABLE_PASSWORD_LOGIN` — захист від downgrade.
+- **Google OIDC** (`POST /auth/google`, `lib/googleAuth.ts`):
+  - Верифікація Google ID token через `jose`:
+    ```ts
+    const JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/oauth2/v3/certs'));
+    // JWKS-об'єкт створюється ОДИН раз на модуль (jose кешує ключі з урахуванням HTTP cache-control).
+    await jwtVerify(credential, JWKS, {
+      issuer: ['https://accounts.google.com', 'accounts.google.com'],
+      audience: process.env.GOOGLE_CLIENT_ID,
+      algorithms: ['RS256'],
+    });
+    ```
+  - Після перевірки підпису — ручні перевірки клеймів: `email_verified === true`; `email.toLowerCase() === ALLOWED_GOOGLE_EMAIL.toLowerCase()` (case-insensitive). Пропуск будь-якої перевірки → діра.
+  - Критичні перевірки: `aud === GOOGLE_CLIENT_ID` (без нього валідний токен від ІНШОГО застосунку пройшов би верифікацію); `iss ∈ {accounts.google.com, https://accounts.google.com}`; `exp` (jose перевіряє автоматично).
+  - Algorithms pin `RS256` — явно, щоб не прийняти `none` або HS256.
+  - Google ID token ніде не зберігається (ні в БД, ні в логах, ні в localStorage); він живе лише в памʼяті під час одного запиту. Назовні повертається виключно власний statok-JWT.
+  - Відповідність email → доступ лише `ALLOWED_GOOGLE_EMAIL` (`vitaliy.simkin@gmail.com`); будь-який інший верифікований Google-акаунт → 403 `FORBIDDEN`.
+  - Rate-limit `POST /auth/google` — той самий механізм `lib/rateLimit.ts`, що й для `/auth/login` (5 невдалих / 15 хв по IP).
+- **Rate-limit входу**: in-memory (`lib/rateLimit.ts`, Map по `ip` із заголовка `x-forwarded-for` від Traefik): максимум **5 невдалих спроб за 15 хв** → 429 `RATE_LIMITED` + `Retry-After`. Застосовується до `POST /auth/login` і `POST /auth/google`. Скидання при успішному вході. In-memory достатньо (один інстанс).
 - **CORS** (hono/cors): `origin` — СТРОГО allowlist із `CORS_ORIGINS` (кома-сепарований; прод — лише `https://statok.simk.in.ua`), не echo-back як у tardis; `credentials: false` (auth через Bearer-header, кук нема); methods GET/POST/PUT/DELETE/OPTIONS; headers Content-Type/Authorization.
 - **Security headers**:
   - Бекенд: `hono/secure-headers` з дефолтами (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin` тощо).
-  - Фронтенд `nginx.conf` (додатково до tardis-конфіга):
+  - Фронтенд `nginx.conf` (додатково до tardis-конфіга). CSP розширений рівно на домени Google для GIS (усвідомлене послаблення заради зовнішнього IdP; `default-src 'self'` залишається):
     ```nginx
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    add_header Content-Security-Policy "default-src 'self'; connect-src 'self' https://api.statok.simk.in.ua; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; worker-src 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' https://accounts.google.com; connect-src 'self' https://api.statok.simk.in.ua https://accounts.google.com; frame-src https://accounts.google.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; manifest-src 'self'; worker-src 'self'" always;
     ```
-    (TLS термінується Traefik-ом — HSTS-заголовок усе одно віддаємо з nginx.)
-- **Поверхня**: жодних зовнішніх вихідних викликів, крім Yahoo/Frankfurter/НБУ (джоби) і Telegram (deploy-нотифікації CI, не рантайм). docker.sock у контейнери НЕ монтується (blueprint). `pg_dump`-ендпоінт — лише під auth, стрім без запису на диск.
-- **Логи**: патерн tardis logger; у логи не потрапляють паролі/токени (login-лог пише лише username/ip/reason).
+    Директиви GIS: `script-src ... https://accounts.google.com` (завантаження `gsi/client`); `connect-src ... https://accounts.google.com` (XHR GIS); `frame-src https://accounts.google.com` (iframe вибору акаунта). Стилі GIS інлайняться — `style-src 'unsafe-inline'` уже є. (TLS термінується Traefik-ом — HSTS-заголовок усе одно віддаємо з nginx.)
+  - **Наслідок для offline/PWA**: без мережі до `accounts.google.com` увійти неможливо (Google-токен не кешується). Для single-user self-hosted прийнятно. Service worker уже виключає `/auth` з кешу (`navigateFallbackDenylist`) — окремих змін SW не потрібно.
+- **Поверхня**: зовнішні виклики з рантайму — Yahoo/Frankfurter/НБУ (джоби) + `www.googleapis.com` (JWKS, бекенд, `POST /auth/google`); з фронтенду — `accounts.google.com` (GIS, лише сторінка логіну). Telegram — CI, не рантайм. docker.sock у контейнери НЕ монтується (blueprint). `pg_dump`-ендпоінт — лише під auth, стрім без запису на диск.
+- **Логи**: патерн tardis logger; у логи не потрапляють паролі/токени/Google ID token (auth-лог пише лише email або його хеш / username + ip + reason).
 
 
 ---

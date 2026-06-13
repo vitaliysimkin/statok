@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { apiFetch, ApiError } from '@/services/api'
 import router from '@/router'
-import type { LoginRequest, LoginResponse, MeResponse } from '@statok/shared'
+import type { LoginRequest, LoginResponse, MeResponse, GoogleLoginRequest } from '@statok/shared'
 
 const username = ref<string | null>(null)
 const isAuthenticated = ref<boolean>(!!localStorage.getItem('statok_token'))
@@ -10,6 +10,22 @@ export function useAuth() {
   async function login(user: string, password: string): Promise<void> {
     const body: LoginRequest = { username: user, password }
     const res = await apiFetch<LoginResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    localStorage.setItem('statok_token', res.token)
+    username.value = res.username
+    isAuthenticated.value = true
+  }
+
+  /**
+   * Exchange a Google Identity Services ID token (`response.credential`) for the
+   * app's own statok JWT via `POST /auth/google`. The Google ID token is sent once
+   * and never stored — only the returned statok token persists (same key as `login`).
+   */
+  async function loginWithGoogle(credential: string): Promise<void> {
+    const body: GoogleLoginRequest = { credential }
+    const res = await apiFetch<LoginResponse>('/auth/google', {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -59,5 +75,5 @@ export function useAuth() {
     await router.push('/login')
   }
 
-  return { username, isAuthenticated, login, refresh, me, logout }
+  return { username, isAuthenticated, login, loginWithGoogle, refresh, me, logout }
 }
